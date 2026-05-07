@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-cream text-ink-900 font-body;
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    @apply bg-ember-400 text-white;
+  }
+}
+
+@layer components {
+  .grain-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 128px;
+  }
+
+  .divider-text {
+    @apply relative flex items-center gap-3 text-ink-400 text-xs font-mono tracking-widest uppercase;
+  }
+
+  .divider-text::before,
+  .divider-text::after {
+    content: '';
+    @apply flex-1 h-px bg-ink-200;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl border border-ink-200 bg-white
+           text-ink-900 font-body text-sm placeholder:text-ink-400
+           focus:outline-none focus:ring-2 focus:ring-ember-400 focus:border-transparent
+           transition-all duration-200;
+  }
+
+  .input-field.error {
+    @apply border-red-400 focus:ring-red-400;
+  }
+
+  .btn-primary {
+    @apply w-full py-3 px-6 rounded-xl font-body font-medium text-sm
+           bg-ink-950 text-cream
+           hover:bg-ink-800 active:scale-[0.98]
+           transition-all duration-200
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100
+           flex items-center justify-center gap-2;
+  }
+
+  .btn-oauth {
+    @apply w-full py-3 px-5 rounded-xl border font-body font-medium text-sm
+           flex items-center gap-3 transition-all duration-200
+           active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-oauth-google {
+    @apply btn-oauth bg-white border-ink-200 text-ink-800
+           hover:bg-ink-50 hover:border-ink-300 hover:shadow-sm;
+  }
+
+  .btn-oauth-github {
+    @apply btn-oauth bg-[#24292f] border-[#24292f] text-white
+           hover:bg-[#2d3339] hover:shadow-sm;
+  }
+
+  .error-message {
+    @apply text-red-500 text-xs mt-1 flex items-center gap-1;
+  }
+
+  .link-styled {
+    @apply text-ember-500 hover:text-ember-600 underline underline-offset-2 
+           transition-colors duration-150 cursor-pointer;
+  }
+}
+
+@layer utilities {
+  .animation-delay-100 { animation-delay: 100ms; }
+  .animation-delay-200 { animation-delay: 200ms; }
+  .animation-delay-300 { animation-delay: 300ms; }
+  .animation-delay-400 { animation-delay: 400ms; }
+  .animation-delay-500 { animation-delay: 500ms; }
+
+  .animate-fade-up {
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards;
+  }
+}
