@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shield, AlertCircle } from "lucide-react";
-import { validateState } from "../utils/oauth.js";
 import { useAuth } from "../hooks/useAuth.jsx";
 import api from "../utils/api.js";
 import { useState } from "react";
@@ -20,13 +19,6 @@ export default function OAuthCallback() {
     // 1. Grab the TOKENS the backend just handed you
     const accessToken = searchParams.get("access_token");
     const refreshToken = searchParams.get("refresh_token");
-    const state = searchParams.get("state");
-
-    // 2. Security check
-    // if (!validateState(state)) {
-    //   setError("Security check failed. Please try signing in again.");
-    //   return;
-    // }
 
     // 3. Use the tokens immediately
     if (accessToken && refreshToken) {
@@ -40,7 +32,9 @@ export default function OAuthCallback() {
             { access_token: accessToken, refresh_token: refreshToken },
             data.user,
           );
-          navigate("/dashboard", { replace: true });
+          // Navigate based on role
+          const dashboard = data.user.role === 'admin' ? '/admin' : '/dashboard';
+          navigate(dashboard, { replace: true });
         })
         .catch(() => {
           setError("Session verification failed. Please try again.");

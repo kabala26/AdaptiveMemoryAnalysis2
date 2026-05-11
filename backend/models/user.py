@@ -45,6 +45,9 @@ class User(db.Model):
     oauth_provider    = db.Column(db.String(32),  nullable=True)   # google | github | email
     oauth_provider_id = db.Column(db.String(255), nullable=True)   # provider UID
 
+    # ── RBAC ──────────────────────────────────────────────────────
+    role          = db.Column(db.String(32), default='analyst', nullable=False)  # 'admin' | 'analyst'
+
     # ── Flags / timestamps ────────────────────────────────────────
     is_active     = db.Column(db.Boolean, default=True, nullable=False)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -83,6 +86,7 @@ class User(db.Model):
             'name':            self.name,
             'profile_picture': self.profile_picture,
             'oauth_provider':  self.oauth_provider,
+            'role':            self.role,
             'is_active':       self.is_active,
             'created_at':      self.created_at.isoformat(),
             'last_login_at':   self.last_login_at.isoformat() if self.last_login_at else None,

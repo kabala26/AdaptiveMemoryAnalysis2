@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {
@@ -9,46 +10,25 @@ export default {
         mono: ['"DM Mono"', 'monospace'],
       },
       colors: {
-        ink: {
-          50:  '#f4f3f0',
-          100: '#e8e6e0',
-          200: '#d0ccc2',
-          300: '#b2ab9d',
-          400: '#8f8577',
-          500: '#736960',
-          600: '#5c5249',
-          700: '#4a4139',
-          800: '#3d352e',
-          900: '#342d27',
-          950: '#1c1712',
+        primary: {
+          50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+          400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+          800: '#1e40af', 900: '#1e3a8a', 950: '#172554',
         },
-        cream: '#f7f4ef',
-        parchment: '#ede8df',
-        ember: {
-          400: '#e8734a',
-          500: '#d4582e',
-          600: '#bf4520',
+        gray: {
+          50: '#f9fafb', 100: '#f3f4f6', 200: '#e5e7eb', 300: '#d1d5db',
+          400: '#9ca3af', 500: '#6b7280', 600: '#4b5563', 700: '#374151',
+          800: '#1f2937', 900: '#111827', 950: '#030712',
         },
-      },
-      animation: {
-        'fade-up': 'fadeUp 0.6s ease forwards',
-        'fade-in': 'fadeIn 0.4s ease forwards',
-        'spin-slow': 'spin 1.4s linear infinite',
-        'shimmer': 'shimmer 2s linear infinite',
       },
       keyframes: {
         fadeUp: {
-          '0%': { opacity: '0', transform: 'translateY(16px)' },
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
-        },
+      },
+      animation: {
+        'fade-up': 'fadeUp 0.6s ease-out forwards',
       },
     },
   },

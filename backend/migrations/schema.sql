@@ -1,6 +1,4 @@
 -- ============================================================
--- MemShield Auth — PostgreSQL Schema
--- Generated: 2026-05-06
 --
 -- This schema is created automatically by SQLAlchemy on startup
 -- (db.create_all()). This file is provided for reference and
@@ -23,6 +21,9 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash       VARCHAR(255),               -- NULL for OAuth-only users
     oauth_provider      VARCHAR(32),                -- 'google' | 'github' | 'email'
     oauth_provider_id   VARCHAR(255),               -- Provider-specific UID
+
+    -- RBAC
+    role                VARCHAR(32)     NOT NULL DEFAULT 'analyst',  -- 'admin' | 'analyst'
 
     -- Flags & timestamps
     is_active           BOOLEAN         NOT NULL DEFAULT TRUE,

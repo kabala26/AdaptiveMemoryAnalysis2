@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from dotenv import load_dotenv
+from pathlib import Path
 import os
 
 load_dotenv()
@@ -18,6 +19,10 @@ def create_app():
     app.config['SECRET_KEY']        = os.environ['SECRET_KEY']
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    # Upload
+    app.config['UPLOAD_FOLDER']      = os.getenv('UPLOAD_FOLDER', str(Path(__file__).parent.parent / 'uploads'))
+    app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024   # 2 GB hard cap
 
     # JWT
     app.config['JWT_SECRET_KEY']           = os.environ['JWT_SECRET_KEY']
@@ -39,8 +44,10 @@ def create_app():
          supports_credentials=True)
 
     # ── Blueprints ────────────────────────────────────────────────
-    from .routes.auth import auth_bp
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    from .routes.auth     import auth_bp
+    from .routes.analysis import analysis_bp
+    app.register_blueprint(auth_bp,     url_prefix='/api/auth')
+    app.register_blueprint(analysis_bp, url_prefix='/api/analysis')
 
     # ── DB init ───────────────────────────────────────────────────
     with app.app_context():

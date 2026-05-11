@@ -1,10 +1,30 @@
-flask==3.0.0
+# ── Web framework & extensions ──────────────────────────────────────────────
+flask==3.0.3
 flask-sqlalchemy==3.1.1
 flask-jwt-extended==4.6.0
-flask-cors==4.0.0
-psycopg2-binary==2.9.9
-python-dotenv==1.0.0
-requests==2.31.0
-bcrypt==4.1.2
-email-validator==2.1.0
-gunicorn==21.2.0
+flask-cors==4.0.1
+
+# ── Database ─────────────────────────────────────────────────────────────────
+psycopg2-binary==2.9.12
+SQLAlchemy==2.0.49
+
+# ── Auth & security ───────────────────────────────────────────────────────────
+bcrypt==4.1.3
+PyJWT==2.12.1
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+requests==2.32.3
+email-validator==2.1.1
+gunicorn==22.0.0
+
+# ── ML / data science ────────────────────────────────────────────────────────
+# scikit-learn 1.4.x has no Python 3.13 wheel; 1.5.0+ ships cp313 wheels
+numpy>=2.2.0
+pandas>=2.3.0
+scikit-learn>=1.5.0
+joblib>=1.4.0
+
+# ── Memory forensics ─────────────────────────────────────────────────────────
+volatility3==2.28.0
+pefile==2024.8.26

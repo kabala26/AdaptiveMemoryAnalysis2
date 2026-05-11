@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, current_app, jsonify, redirect, request
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
-    get_jwt_identity, jwt_required,
+    get_jwt_identity, get_jwt, jwt_required,
 )
 
 from .. import db
@@ -44,11 +44,12 @@ auth_bp = Blueprint('auth', __name__)
 # ══════════════════════════════════════════════════════════════════
 
 def _make_tokens(user: User) -> tuple[str, str]:
-    """Issue a fresh access + refresh token pair for a user."""
+    """Issue a fresh access + refresh token pair for a user with role claim."""
     identity = user.id
+    additional_claims = {'role': user.role}
     return (
-        create_access_token(identity=identity),
-        create_refresh_token(identity=identity),
+        create_access_token(identity=identity, additional_claims=additional_claims),
+        create_refresh_token(identity=identity, additional_claims=additional_claims),
     )
 
 
@@ -313,7 +314,7 @@ def refresh():
     if not user or not user.is_active:
         return _error('User not found or inactive.', 401)
 
-    new_access = create_access_token(identity=user_id)
+    new_access = create_access_token(identity=user_id, additional_claims={'role': user.role})
     return jsonify({'access_token': new_access}), 200
 
 
@@ -344,3 +345,52 @@ def me():
         return _error('User not found.', 404)
 
     return jsonify({'user': user.to_dict()}), 200
+
+
+# ══════════════════════════════════════════════════════════════════
+#  Role Management (Admin only)
+# ══════════════════════════════════════════════════════════════════
+
+def _require_admin():
+    """Check if current user is admin."""
+    claims = get_jwt()
+    if claims.get('role') != 'admin':
+        return _error('Access denied. Admin role required.', 403)
+    return None
+
+
+@auth_bp.get('/users')
+@jwt_required()
+def list_users():
+    """List all users (admin only)."""
+    error = _require_admin()
+    if error:
+        return error
+
+    users = User.query.all()
+    return jsonify({'users': [u.to_dict() for u in users]}), 200
+
+
+@auth_bp.post('/users/<user_id>/role')
+@jwt_required()
+def assign_role(user_id):
+    """Assign a role to a user (admin only)."""
+    error = _require_admin()
+    if error:
+        return error
+
+    data = request.get_json(silent=True) or {}
+    role = (data.get('role') or '').strip().lower()
+
+    if role not in ['admin', 'analyst']:
+        return _error('Invalid role. Must be "admin" or "analyst".', 400)
+
+    user = User.query.get(user_id)
+    if not user:
+        return _error('User not found.', 404)
+
+    user.role = role
+    db.session.commit()
+
+    return jsonify({'user': user.to_dict(), 'message': f'Role updated to {role}'}), 200
+

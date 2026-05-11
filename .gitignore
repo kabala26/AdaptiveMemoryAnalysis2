@@ -33,3 +33,9 @@ Thumbs.db
 
 # Docker
 *.pid
+
+# Dataset (large raw CSV — re-downloadable from CIC)
+dataset/
+
+# Memory dump uploads
+uploads/

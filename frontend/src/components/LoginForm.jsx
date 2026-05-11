@@ -79,7 +79,7 @@ export default function LoginForm() {
           <label htmlFor="login-password" className="block text-xs font-medium text-ink-600 font-mono tracking-wide uppercase">
             Password
           </label>
-          <a href="/forgot-password" className="text-xs link-styled">Forgot password?</a>
+
         </div>
         <div className="relative">
           <input
