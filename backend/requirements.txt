@@ -17,6 +17,7 @@ python-dotenv==1.0.1
 requests==2.32.3
 email-validator==2.1.1
 gunicorn==22.0.0
+APScheduler>=3.10.0,<4.0
 
 # ── ML / data science ────────────────────────────────────────────────────────
 # scikit-learn 1.4.x has no Python 3.13 wheel; 1.5.0+ ships cp313 wheels

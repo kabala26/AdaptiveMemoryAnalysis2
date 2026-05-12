@@ -46,7 +46,7 @@ class User(db.Model):
     oauth_provider_id = db.Column(db.String(255), nullable=True)   # provider UID
 
     # ── RBAC ──────────────────────────────────────────────────────
-    role          = db.Column(db.String(32), default='analyst', nullable=False)  # 'admin' | 'analyst'
+    role          = db.Column(db.String(32), default='forensic_analyst', nullable=False)  # 'admin' | 'forensic_analyst'
 
     # ── Flags / timestamps ────────────────────────────────────────
     is_active     = db.Column(db.Boolean, default=True, nullable=False)

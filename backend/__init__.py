@@ -1,10 +1,11 @@
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
-from flask_cors import CORS
-from dotenv import load_dotenv
-from pathlib import Path
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from flask import Flask
+from flask_cors import CORS
+from flask_jwt_extended import JWTManager
+from flask_sqlalchemy import SQLAlchemy
 
 load_dotenv()
 
@@ -53,4 +54,51 @@ def create_app():
     with app.app_context():
         db.create_all()
 
+    # ── APScheduler — weekly adaptive retraining ──────────────────
+    # Only start in the main process; the Werkzeug debug reloader spawns a
+    # child process first — we must not schedule there or we'd get two jobs.
+    _start_scheduler(app)
+
     return app
+
+
+def _start_scheduler(app: Flask) -> None:
+    """Attach a BackgroundScheduler to app that fires adaptive_retrain weekly."""
+    if app.debug and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        return  # reloader child process — skip
+
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        app.logger.warning(
+            'APScheduler is not installed — weekly retraining disabled. '
+            'Run: pip install "APScheduler>=3.10.0,<4.0"'
+        )
+        return
+
+    _app = app  # capture for the closure
+
+    def _job():
+        app.logger.info('APScheduler: starting weekly adaptive retrain.')
+        try:
+            from modules.model_trainer import adaptive_retrain
+            result = adaptive_retrain(_app)
+            _app.logger.info(
+                'APScheduler: retrain finished — %s (acc %.4f)',
+                result['outcome'], result['accuracy'],
+            )
+        except Exception as exc:
+            _app.logger.error('APScheduler: retrain failed — %s', exc)
+
+    scheduler = BackgroundScheduler(timezone='UTC', daemon=True)
+    scheduler.add_job(
+        _job,
+        CronTrigger(day_of_week='sun', hour=2, minute=0, timezone='UTC'),
+        id='weekly_adaptive_retrain',
+        replace_existing=True,
+        misfire_grace_time=3600,  # fire up to 1 h late if server was down
+    )
+    scheduler.start()
+    app.scheduler = scheduler
+    app.logger.info('APScheduler started — weekly retrain every Sunday 02:00 UTC.')

@@ -2,8 +2,8 @@ from functools import wraps
 from flask import jsonify
 from flask_jwt_extended import get_jwt, jwt_required
 
-ADMIN  = 'admin'
-ANALYST = 'analyst'
+ADMIN   = 'admin'
+ANALYST = 'forensic_analyst'
 
 ALL_VALID_ROLES = {ADMIN, ANALYST}
 

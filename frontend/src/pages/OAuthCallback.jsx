@@ -33,7 +33,7 @@ export default function OAuthCallback() {
             data.user,
           );
           // Navigate based on role
-          const dashboard = data.user.role === 'admin' ? '/admin' : '/dashboard';
+          const dashboard = data.user.role === 'admin' ? '/admin/dashboard' : '/analyst/dashboard';
           navigate(dashboard, { replace: true });
         })
         .catch(() => {

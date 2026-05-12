@@ -382,8 +382,8 @@ def assign_role(user_id):
     data = request.get_json(silent=True) or {}
     role = (data.get('role') or '').strip().lower()
 
-    if role not in ['admin', 'analyst']:
-        return _error('Invalid role. Must be "admin" or "analyst".', 400)
+    if role not in ['admin', 'forensic_analyst']:
+        return _error('Invalid role. Must be "admin" or "forensic_analyst".', 400)
 
     user = User.query.get(user_id)
     if not user:
