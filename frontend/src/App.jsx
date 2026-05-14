@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth.jsx'
 import { ThemeProvider } from './hooks/useTheme.jsx'
+import { ToastProvider } from './hooks/useToast.jsx'
 import AuthPage        from './pages/AuthPage.jsx'
 import OAuthCallback   from './pages/OAuthCallback.jsx'
 import UploadPage      from './pages/UploadPage.jsx'
@@ -57,6 +58,7 @@ function AnalystRoute({ children }) {
 export default function App() {
   return (
     <ThemeProvider>
+      <ToastProvider>
       <AuthProvider>
         <div className="grain-overlay" aria-hidden="true" />
         <Routes>
@@ -90,6 +92,7 @@ export default function App() {
           <Route path="*" element={<RootRedirect />} />
         </Routes>
       </AuthProvider>
+      </ToastProvider>
     </ThemeProvider>
   )
 }

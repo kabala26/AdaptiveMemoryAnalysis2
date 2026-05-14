@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS results (
     model_id            VARCHAR(36)  NOT NULL
                                      REFERENCES ml_models(model_id)   ON DELETE RESTRICT,
     prediction          VARCHAR(32)  NOT NULL
-                                     CHECK (prediction IN ('benign', 'malicious')),
+                                     CHECK (prediction IN ('Benign', 'Malware')),
     confidence          FLOAT        NOT NULL
                                      CHECK (confidence >= 0.0 AND confidence <= 1.0),
     classification_date TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

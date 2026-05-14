@@ -11,6 +11,7 @@ Runs five plugins against a single shared context:
 Returns one dictionary ready for INSERT into the features.feature_data JSONB column.
 """
 
+import concurrent.futures
 import logging
 import math
 import os
@@ -173,7 +174,7 @@ class FeatureExtractor:
             ) from exc
 
         # Import all built-in plugins so automagic can satisfy requirements.
-        vf.import_files(vp, prefix="volatility3.plugins")
+        vf.import_files(vp, ignore_errors=True)
 
         self._ctx = contexts.Context()
         self._ctx.config["automagic.LayerStacker.single_location"] = (
@@ -181,25 +182,47 @@ class FeatureExtractor:
         )
         self._automagics = automagic.available(self._ctx)
 
+    # Seconds each plugin may run before being skipped with partial results.
+    PLUGIN_TIMEOUT = 180
+
     def _run_plugin(self, plugin_class) -> list[dict]:
         """
         Construct and run one plugin against the shared context.
         Returns a list of row dicts with normalised Python values.
+        Times out after PLUGIN_TIMEOUT seconds so a slow plugin cannot stall the pipeline.
         """
         from volatility3.framework import plugins as fp
 
-        try:
+        def _execute() -> list[dict]:
             constructed = fp.construct_plugin(
                 self._ctx, self._automagics, plugin_class,
                 "plugins", None, None,
             )
             treegrid = constructed.run()
             col_names = [col.name for col in treegrid.columns]
-            rows = []
-            for _depth, row in treegrid.generator():
-                row_dict = {name: _safe(val) for name, val in zip(col_names, row)}
-                rows.append(row_dict)
+            rows: list[dict] = []
+
+            def _visitor(node, accumulator):
+                accumulator.append(
+                    {name: _safe(val) for name, val in zip(col_names, node.values)}
+                )
+                return accumulator
+
+            treegrid.visit(None, _visitor, rows)
             return rows
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_execute)
+                return future.result(timeout=self.PLUGIN_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            msg = (
+                f"{plugin_class.__name__}: TimeoutError: "
+                f"plugin exceeded {self.PLUGIN_TIMEOUT}s limit — skipped"
+            )
+            self.errors.append(msg)
+            logger.warning("Plugin timed out — %s", msg)
+            return []
         except Exception as exc:
             msg = f"{plugin_class.__name__}: {type(exc).__name__}: {exc}"
             self.errors.append(msg)
@@ -446,9 +469,168 @@ class FeatureExtractor:
 
     # ── Full pipeline ─────────────────────────────────────────────────────────
 
+    # ── Handles features ──────────────────────────────────────────────────────
+
+    def extract_handle_features(self) -> dict:
+        """
+        Run the Handles plugin to count open handles per process and break them
+        down by type (Port, File, Event, Desktop, Key, Thread, Directory,
+        Semaphore, Timer, Section, Mutant).
+        """
+        from volatility3.plugins.windows import handles
+
+        rows = self._run_plugin(handles.Handles)
+
+        type_counts: dict[str, int] = {}
+        per_proc_counts: dict[int, int] = {}
+
+        for row in rows:
+            htype = str(row.get("Type") or "").strip()
+            pid   = row.get("PID")
+            if pid is not None:
+                per_proc_counts[pid] = per_proc_counts.get(pid, 0) + 1
+            if htype:
+                type_counts[htype] = type_counts.get(htype, 0) + 1
+
+        total   = sum(per_proc_counts.values())
+        nprocs  = len(per_proc_counts)
+        avg_per = total / nprocs if nprocs else 0.0
+
+        return {
+            "total_handles":     total,
+            "avg_handles_per_proc": avg_per,
+            "nport":      type_counts.get("Port",      0),
+            "nfile":      type_counts.get("File",      0),
+            "nevent":     type_counts.get("Event",     0),
+            "ndesktop":   type_counts.get("Desktop",   0),
+            "nkey":       type_counts.get("Key",       0),
+            "nthread":    type_counts.get("Thread",    0),
+            "ndirectory": type_counts.get("Directory", 0),
+            "nsemaphore": type_counts.get("Semaphore", 0),
+            "ntimer":     type_counts.get("Timer",     0),
+            "nsection":   type_counts.get("Section",   0),
+            "nmutant":    type_counts.get("Mutant",    0),
+        }
+
+    # ── Service scan features ─────────────────────────────────────────────────
+
+    def extract_service_features(self) -> dict:
+        """
+        Run the SvcScan plugin to enumerate Windows services and classify them
+        by service type (kernel driver, FS driver, process, shared-process,
+        interactive-process).
+        """
+        from volatility3.plugins.windows import svcscan
+
+        rows = self._run_plugin(svcscan.SvcScan)
+
+        total      = 0
+        kernel_drv = 0
+        fs_drv     = 0
+        proc_svc   = 0
+        shared_svc = 0
+        inter_svc  = 0
+        active     = 0
+
+        for row in rows:
+            total += 1
+            stype  = str(row.get("Type")  or "").lower()
+            state  = str(row.get("State") or "").lower()
+
+            if "kernel" in stype and "driver" in stype:
+                kernel_drv += 1
+            elif "file" in stype and "system" in stype:
+                fs_drv += 1
+            elif "interactive" in stype and "process" in stype:
+                inter_svc += 1
+            elif "share" in stype and "process" in stype:
+                shared_svc += 1
+            elif "own" in stype and "process" in stype:
+                proc_svc += 1
+
+            if "running" in state:
+                active += 1
+
+        return {
+            "nservices":                   total,
+            "kernel_drivers":              kernel_drv,
+            "fs_drivers":                  fs_drv,
+            "process_services":            proc_svc,
+            "shared_process_services":     shared_svc,
+            "interactive_process_services": inter_svc,
+            "nactive":                     active,
+        }
+
+    # ── Fast pipeline (no Malfind / SvcScan) ─────────────────────────────────
+
+    def extract_fast(self) -> dict:
+        """
+        Run only the fast plugins (PsList, PsScan, DllList, VadInfo, Handles).
+        Skips Malfind and SvcScan — completes in seconds on any dump size.
+
+        Returns the same dict structure as extract_all() so it can be fed
+        straight into map_to_feature_vector().  The behavioral_indicators and
+        service_features sections are zero-filled placeholders.
+        """
+        logger.info("Starting fast extraction (no Malfind/SvcScan): %s", self._dump_path)
+
+        proc = self.extract_process_features()
+        dlls = self.extract_dll_features()
+        mem  = self.extract_memory_region_features()
+        hdl  = self.extract_handle_features()
+
+        behav = {
+            "malfind_count": 0, "high_entropy_regions": 0,
+            "injection_score": 0.0, "injection_evidence": [],
+        }
+        svc = {
+            "nservices": 0, "kernel_drivers": 0, "fs_drivers": 0,
+            "process_services": 0, "shared_process_services": 0,
+            "interactive_process_services": 0, "nactive": 0,
+        }
+
+        summary = {
+            "process_count":    proc["total_count"],
+            "hidden_processes": proc["hidden_count"],
+            "dll_count":        dlls["total_loaded"],
+            "suspicious_dlls":  dlls["suspicious_paths_count"],
+            "rwx_regions":      mem["rwx_count"],
+            "malfind_hits":     0,
+            "nservices":        0,
+            "total_handles":    hdl["total_handles"],
+            "risk_score":       _risk_score(
+                hidden          = proc["hidden_count"],
+                malfind_hits    = 0,
+                rwx_regions     = mem["rwx_count"],
+                suspicious_dlls = dlls["suspicious_paths_count"],
+            ),
+        }
+
+        logger.info(
+            "Fast extraction complete — processes: %d (hidden: %d), DLLs: %d, "
+            "RWX: %d, handles: %d",
+            summary["process_count"], summary["hidden_processes"],
+            summary["dll_count"], summary["rwx_regions"], summary["total_handles"],
+        )
+
+        return {
+            "dump_path":              self._dump_path,
+            "extraction_timestamp":   datetime.now(timezone.utc).isoformat(),
+            "process_features":       proc,
+            "dll_features":           dlls,
+            "memory_region_features": mem,
+            "behavioral_indicators":  behav,
+            "handle_features":        hdl,
+            "service_features":       svc,
+            "summary":                summary,
+            "errors":                 self.errors,
+        }
+
+    # ── Full pipeline ─────────────────────────────────────────────────────────
+
     def extract_all(self) -> dict:
         """
-        Run all four extraction passes and return the complete feature dictionary.
+        Run all extraction passes and return the complete feature dictionary.
 
         The returned dict is directly serialisable with json.dumps (all values
         are str, int, float, bool, list, dict, or None) and safe to INSERT
@@ -460,6 +642,8 @@ class FeatureExtractor:
         dlls   = self.extract_dll_features()
         mem    = self.extract_memory_region_features()
         behav  = self.extract_behavioral_indicators()
+        hdl    = self.extract_handle_features()
+        svc    = self.extract_service_features()
 
         summary = {
             "process_count":    proc["total_count"],
@@ -468,6 +652,8 @@ class FeatureExtractor:
             "suspicious_dlls":  dlls["suspicious_paths_count"],
             "rwx_regions":      mem["rwx_count"],
             "malfind_hits":     behav["malfind_count"],
+            "nservices":        svc["nservices"],
+            "total_handles":    hdl["total_handles"],
             "risk_score":       _risk_score(
                 hidden        = proc["hidden_count"],
                 malfind_hits  = behav["malfind_count"],
@@ -478,10 +664,12 @@ class FeatureExtractor:
 
         logger.info(
             "Extraction complete — processes: %d (hidden: %d), "
-            "DLLs: %d, RWX regions: %d, malfind hits: %d, risk: %.2f",
+            "DLLs: %d, RWX regions: %d, malfind hits: %d, "
+            "handles: %d, services: %d, risk: %.2f",
             summary["process_count"], summary["hidden_processes"],
             summary["dll_count"], summary["rwx_regions"],
-            summary["malfind_hits"], summary["risk_score"],
+            summary["malfind_hits"], summary["total_handles"],
+            summary["nservices"], summary["risk_score"],
         )
 
         return {
@@ -491,6 +679,8 @@ class FeatureExtractor:
             "dll_features":            dlls,
             "memory_region_features":  mem,
             "behavioral_indicators":   behav,
+            "handle_features":         hdl,
+            "service_features":        svc,
             "summary":                 summary,
             "errors":                  self.errors,
         }
@@ -501,18 +691,16 @@ class FeatureExtractor:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_features(dump_path: str) -> dict:
-    """
-    One-call interface for the analysis pipeline.
-
-    Args:
-        dump_path: Absolute or relative path to a Windows memory dump
-                   (.raw, .mem, .vmem, or any format Volatility 3 supports).
-
-    Returns:
-        Feature dictionary as described in FeatureExtractor.extract_all().
-
-    Raises:
-        FileNotFoundError: if dump_path does not exist.
-        RuntimeError:      if volatility3 is not installed.
-    """
+    """Full extraction: all seven plugins including Malfind and SvcScan."""
     return FeatureExtractor(dump_path).extract_all()
+
+
+def extract_fast_features(dump_path: str) -> dict:
+    """
+    Fast extraction: PsList, PsScan, DllList, VadInfo, Handles only.
+    Skips Malfind and SvcScan.  Completes in seconds regardless of dump size.
+    Used as Stage 1 of the two-phase pipeline — the classifier makes a
+    preliminary Benign/Malware call on these features before deciding whether
+    the slow plugins are needed.
+    """
+    return FeatureExtractor(dump_path).extract_fast()

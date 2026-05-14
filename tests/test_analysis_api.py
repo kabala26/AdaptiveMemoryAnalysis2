@@ -427,14 +427,14 @@ class TestRoleEnforcement:
 
 class TestUploadValidation:
     def test_size_limit_via_content_length(self, app, client):
-        # Fake a declared Content-Length of 3 GB — server must reject before reading body
+        # Fake a declared Content-Length of 9 GB — server must reject before reading body
         rv = client.open(
             "/api/analysis/upload",
             method="POST",
             headers=_auth(app, "forensic_analyst"),
             data={"file": (io.BytesIO(b"small"), "sample.raw")},
             content_type="multipart/form-data",
-            environ_overrides={"CONTENT_LENGTH": str(3 * 1024 * 1024 * 1024)},
+            environ_overrides={"CONTENT_LENGTH": str(9 * 1024 * 1024 * 1024)},
         )
         assert rv.status_code == 413
 
@@ -448,7 +448,7 @@ class TestUploadValidation:
         assert rv.status_code == 400
 
     def test_all_allowed_extensions_accepted(self, app, client):
-        for ext in (".raw", ".mem", ".vmem", ".dmp"):
+        for ext in (".raw", ".mem", ".vmem", ".dmp", ".csv"):
             rv = client.post(
                 "/api/analysis/upload",
                 headers=_auth(app, "forensic_analyst"),

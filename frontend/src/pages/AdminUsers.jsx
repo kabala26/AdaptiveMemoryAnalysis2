@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth.jsx'
-import { Users, Shield, UserX, Check, Loader2 } from 'lucide-react'
+import { useToast } from '../hooks/useToast.jsx'
+import { Users, Shield, UserX, Loader2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
 
@@ -11,13 +12,11 @@ function RoleBadge({ role }) {
 }
 
 export default function AdminUsers() {
-  const { user: me }            = useAuth()
-  const [users,   setUsers]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [saving,  setSaving]    = useState(null)  // user id being updated
-  const [toast,   setToast]     = useState(null)
-
-  function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+  const { user: me } = useAuth()
+  const toast        = useToast()
+  const [users,   setUsers]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(null)
 
   useEffect(() => {
     api.get('/auth/users')
@@ -31,9 +30,9 @@ export default function AdminUsers() {
     try {
       await api.post(`/auth/users/${userId}/role`, { role: newRole })
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
-      showToast('Role updated.')
+      toast.success('Role updated successfully.')
     } catch (e) {
-      showToast(e.response?.data?.message || 'Failed to update role.')
+      toast.error(e.response?.data?.message || 'Failed to update role.')
     } finally {
       setSaving(null)
     }
@@ -42,7 +41,7 @@ export default function AdminUsers() {
   async function handleDeactivate(userId, active) {
     // API endpoint for deactivation would be /auth/users/<id>/deactivate
     // Placeholder — wire up when backend endpoint is ready
-    showToast('Account status change coming soon.')
+    toast.info('Account status change coming soon.')
   }
 
   const stats = {
@@ -55,13 +54,6 @@ export default function AdminUsers() {
   return (
     <Layout>
       <div className="space-y-6 max-w-5xl">
-        {/* Toast */}
-        {toast && (
-          <div className="fixed top-6 right-6 z-50 px-4 py-3 rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm shadow-xl flex items-center gap-2">
-            <Check className="w-4 h-4 text-green-400" /> {toast}
-          </div>
-        )}
-
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">User Management</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage roles and account status</p>

@@ -42,8 +42,8 @@ analysis_bp = Blueprint('analysis', __name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-_ALLOWED_EXTENSIONS = {'.raw', '.mem', '.dmp', '.vmem'}
-_MAX_UPLOAD_BYTES   = 2 * 1024 * 1024 * 1024   # 2 GB
+_ALLOWED_EXTENSIONS = {'.raw', '.mem', '.dmp', '.vmem', '.csv'}
+_MAX_UPLOAD_BYTES   = 8 * 1024 * 1024 * 1024   # 8 GB
 
 _retrain_lock = threading.Lock()
 
@@ -91,8 +91,99 @@ def _audit(action: str, resource_type: str = None, resource_id: str = None, deta
 
 # ── Background workers ────────────────────────────────────────────────────────
 
+_ANALYSIS_TIMEOUT_SECONDS = 600   # 10 minutes hard cap for slow plugins
+_FAST_TIMEOUT_SECONDS    = 300   # 5 minutes cap for fast-plugin phase
+_BENIGN_THRESHOLD        = 0.80  # skip slow plugins when Benign confidence ≥ this
+
+
+# ── CSV batch helper ──────────────────────────────────────────────────────────
+
+def _classify_csv_batch(file_path: str) -> dict:
+    """
+    Classify every row in a CICMalMem-format CSV as Benign or Malware
+    and return an aggregated batch summary.
+
+    Raises ValueError if the file does not look like a feature CSV.
+    """
+    import numpy as np
+    import pandas as pd
+    from modules.feature_mapper import FEATURE_NAMES
+
+    df = pd.read_csv(file_path)
+
+    # Require at least half the expected feature columns to be present.
+    present = [c for c in FEATURE_NAMES if c in df.columns]
+    if len(present) < len(FEATURE_NAMES) // 2:
+        raise ValueError(
+            f'CSV has only {len(present)}/{len(FEATURE_NAMES)} expected feature '
+            'columns — does not look like a CICMalMem feature file.'
+        )
+
+    # Build the feature matrix in the canonical 55-column order, filling gaps with 0.
+    X = np.zeros((len(df), len(FEATURE_NAMES)), dtype=np.float64)
+    for i, name in enumerate(FEATURE_NAMES):
+        if name in df.columns:
+            X[:, i] = pd.to_numeric(df[name], errors='coerce').fillna(0).values
+
+    model_row = _latest_model()
+    if not model_row or not model_row.model_path or not Path(model_row.model_path).is_file():
+        raise ValueError('No trained model available.')
+
+    clf        = joblib.load(model_row.model_path)
+    labels     = clf.predict(X)
+    probas     = clf.predict_proba(X)
+    predictions = ['Malware' if int(l) == 1 else 'Benign' for l in labels]
+    confidences = [float(max(p)) for p in probas]
+
+    n_malware = sum(1 for p in predictions if p == 'Malware')
+    n_benign  = len(predictions) - n_malware
+
+    # Stage 2 — batch family classification on malicious rows only
+    categories: dict[str, int] = {}
+    families:   dict[str, int] = {}
+    try:
+        from modules.family_classifier import CATEGORY_MODEL_PATH, FAMILY_MODEL_PATH
+        if CATEGORY_MODEL_PATH.is_file() and FAMILY_MODEL_PATH.is_file():
+            mal_idx = [i for i, p in enumerate(predictions) if p == 'Malware']
+            if mal_idx:
+                X_mal = X[mal_idx]
+                cat_b = joblib.load(CATEGORY_MODEL_PATH)
+                for c in cat_b['label_encoder'].inverse_transform(cat_b['model'].predict(X_mal)):
+                    categories[c] = categories.get(c, 0) + 1
+                fam_b = joblib.load(FAMILY_MODEL_PATH)
+                for f in fam_b['label_encoder'].inverse_transform(fam_b['model'].predict(X_mal)):
+                    families[f] = families.get(f, 0) + 1
+    except Exception as exc:
+        current_app.logger.warning('Batch family classification failed: %s', exc)
+
+    top_category = max(categories, key=categories.get) if categories else None
+    top_family   = max(families,   key=families.get)   if families   else None
+
+    return {
+        'model_id':        model_row.model_id,
+        'prediction':      'Malware' if n_malware > 0 else 'Benign',
+        'confidence':      float(np.mean(confidences)),
+        'malware_category': top_category,
+        'malware_family':   top_family,
+        'batch_summary': {
+            'batch_mode':    True,
+            'total':         len(predictions),
+            'benign_count':  n_benign,
+            'malware_count': n_malware,
+            'malware_pct':   round(n_malware / len(predictions) * 100, 1) if predictions else 0.0,
+            'categories':    categories,
+            'families':      dict(sorted(families.items(), key=lambda x: -x[1])[:10]),
+            'avg_confidence': round(float(np.mean(confidences)), 4),
+        },
+    }
+
+
+# ── Analysis worker ───────────────────────────────────────────────────────────
+
 def _analysis_worker(app, dump_id: str, file_path: str):
     """Run extraction + classification in a daemon thread."""
+    import concurrent.futures as _cf
+
     with app.app_context():
         dump = db.session.get(MemoryDump, dump_id)
         if dump is None:
@@ -102,38 +193,160 @@ def _analysis_worker(app, dump_id: str, file_path: str):
             dump.status = 'processing'
             db.session.commit()
 
-            from modules.feature_extractor import extract_features
             from modules.feature_mapper import map_to_feature_vector
 
-            extracted = extract_features(file_path)
-            vec = map_to_feature_vector(extracted)
+            suffix = Path(file_path).suffix.lower()
 
-            feat = AnalysisFeatures(
-                dump_id       = dump_id,
-                process_count = extracted.get('summary', {}).get('process_count'),
-                dll_count     = extracted.get('summary', {}).get('dll_count'),
-                feature_data  = extracted,
-            )
-            db.session.add(feat)
+            # ── CSV batch mode ────────────────────────────────────────────────
+            if suffix == '.csv':
+                current_app.logger.info(
+                    'CSV batch mode for dump %s — classifying rows directly.', dump_id
+                )
+                batch = _classify_csv_batch(file_path)
 
-            model_row = _latest_model()
-            if model_row and model_row.model_path and Path(model_row.model_path).is_file():
-                clf        = joblib.load(model_row.model_path)
-                label      = clf.predict(vec)[0]
-                proba      = clf.predict_proba(vec)[0]
-                prediction = 'Malware' if int(label) == 1 else 'Benign'
-                confidence = float(max(proba))
+                feat = AnalysisFeatures(
+                    dump_id      = dump_id,
+                    process_count = None,
+                    dll_count     = None,
+                    feature_data  = {'batch_mode': True,
+                                     'batch_summary': batch['batch_summary']},
+                )
+                db.session.add(feat)
 
                 result = AnalysisResult(
-                    dump_id    = dump_id,
-                    model_id   = model_row.model_id,
-                    prediction = prediction,
-                    confidence = confidence,
+                    dump_id             = dump_id,
+                    model_id            = batch['model_id'],
+                    prediction          = batch['prediction'],
+                    confidence          = batch['confidence'],
+                    malware_category    = batch['malware_category'],
+                    category_confidence = None,
+                    malware_family      = batch['malware_family'],
+                    family_confidence   = None,
                 )
                 db.session.add(result)
+                dump.status = 'complete'
+                db.session.commit()
 
-            dump.status = 'complete'
-            db.session.commit()
+            # ── Memory dump mode (two-phase) ──────────────────────────────────
+            else:
+                from modules.feature_extractor import extract_fast_features, extract_features
+
+                # Phase 1 — fast plugins only (PsList, PsScan, DllList, VadInfo, Handles)
+                try:
+                    with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(extract_fast_features, file_path)
+                        extracted_fast = future.result(timeout=_FAST_TIMEOUT_SECONDS)
+                except _cf.TimeoutError:
+                    raise TimeoutError(
+                        f'Fast feature extraction exceeded {_FAST_TIMEOUT_SECONDS // 60} '
+                        'minutes — dump may be too large or corrupted.'
+                    )
+
+                vec_fast  = map_to_feature_vector(extracted_fast)
+                model_row = _latest_model()
+
+                if not (model_row and model_row.model_path
+                        and Path(model_row.model_path).is_file()):
+                    # No model — persist what we have and bail gracefully.
+                    feat = AnalysisFeatures(
+                        dump_id       = dump_id,
+                        process_count = extracted_fast['summary']['process_count'],
+                        dll_count     = extracted_fast['summary']['dll_count'],
+                        feature_data  = extracted_fast,
+                    )
+                    db.session.add(feat)
+                    dump.status = 'complete'
+                    db.session.commit()
+                else:
+                    clf            = joblib.load(model_row.model_path)
+                    label_fast     = clf.predict(vec_fast)[0]
+                    proba_fast     = clf.predict_proba(vec_fast)[0]
+                    pred_fast      = 'Malware' if int(label_fast) == 1 else 'Benign'
+                    conf_fast      = float(max(proba_fast))
+
+                    if pred_fast == 'Benign' and conf_fast >= _BENIGN_THRESHOLD:
+                        # ── Benign shortcut: skip Malfind and SvcScan ─────────
+                        current_app.logger.info(
+                            'Benign early-exit for dump %s (conf %.2f) — '
+                            'skipping Malfind/SvcScan.', dump_id, conf_fast
+                        )
+                        extracted  = extracted_fast
+                        prediction = pred_fast
+                        confidence = conf_fast
+                    else:
+                        # ── Potentially malicious: run full extraction ─────────
+                        current_app.logger.info(
+                            'Dump %s classified as %s (conf %.2f) at fast phase — '
+                            'running Malfind/SvcScan.', dump_id, pred_fast, conf_fast
+                        )
+                        try:
+                            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                                future = pool.submit(extract_features, file_path)
+                                extracted = future.result(timeout=_ANALYSIS_TIMEOUT_SECONDS)
+                        except _cf.TimeoutError:
+                            raise TimeoutError(
+                                f'Feature extraction exceeded '
+                                f'{_ANALYSIS_TIMEOUT_SECONDS // 60} minutes — '
+                                'dump may be too large or corrupted.'
+                            )
+
+                        vec        = map_to_feature_vector(extracted)
+                        label      = clf.predict(vec)[0]
+                        proba      = clf.predict_proba(vec)[0]
+                        prediction = 'Malware' if int(label) == 1 else 'Benign'
+                        confidence = float(max(proba))
+
+                    feat = AnalysisFeatures(
+                        dump_id       = dump_id,
+                        process_count = extracted['summary']['process_count'],
+                        dll_count     = extracted['summary']['dll_count'],
+                        feature_data  = extracted,
+                    )
+                    db.session.add(feat)
+
+                    # Stage 2 — family classification (malicious dumps only)
+                    malware_category    = None
+                    category_confidence = None
+                    malware_family      = None
+                    family_confidence   = None
+
+                    if prediction == 'Malware':
+                        try:
+                            from modules.family_classifier import predict_family
+                            vec_for_family = map_to_feature_vector(extracted)
+                            family_result  = predict_family(vec_for_family)
+                            if family_result:
+                                malware_category    = family_result['category']
+                                category_confidence = family_result['category_confidence']
+                                malware_family      = family_result['family']
+                                family_confidence   = family_result['family_confidence']
+                        except Exception as exc:
+                            current_app.logger.warning(
+                                'Family classification failed for dump %s: %s', dump_id, exc
+                            )
+
+                    result = AnalysisResult(
+                        dump_id             = dump_id,
+                        model_id            = model_row.model_id,
+                        prediction          = prediction,
+                        confidence          = confidence,
+                        malware_category    = malware_category,
+                        category_confidence = category_confidence,
+                        malware_family      = malware_family,
+                        family_confidence   = family_confidence,
+                    )
+                    db.session.add(result)
+                    dump.status = 'complete'
+                    db.session.commit()
+
+            # Delete raw file — features are in the DB now
+            try:
+                Path(file_path).unlink(missing_ok=True)
+                current_app.logger.info('Deleted dump file after analysis: %s', file_path)
+            except Exception as del_exc:
+                current_app.logger.warning(
+                    'Could not delete dump file %s: %s', file_path, del_exc
+                )
 
         except Exception as exc:
             db.session.rollback()
@@ -141,6 +354,10 @@ def _analysis_worker(app, dump_id: str, file_path: str):
             try:
                 dump.status = 'failed'
                 db.session.commit()
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             except Exception:
                 db.session.rollback()
 
@@ -197,14 +414,23 @@ def upload():
     dest     = dest_dir / f"{dump_id}{suffix}"
 
     written = 0
-    with open(dest, 'wb') as fh:
-        for chunk in iter(lambda: file.stream.read(1 << 20), b''):
-            written += len(chunk)
-            if written > _MAX_UPLOAD_BYTES:
-                fh.close()
-                dest.unlink(missing_ok=True)
-                return _error('File exceeds the 2 GB upload limit.', 413)
-            fh.write(chunk)
+    try:
+        with open(dest, 'wb') as fh:
+            for chunk in iter(lambda: file.stream.read(1 << 20), b''):
+                written += len(chunk)
+                if written > _MAX_UPLOAD_BYTES:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    return _error('File exceeds the 8 GB upload limit.', 413)
+                fh.write(chunk)
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        if exc.errno == 28:   # ENOSPC — no space left on device
+            return _error(
+                'Server storage is full. Please contact an administrator to free space.',
+                507,
+            )
+        raise
 
     hash_value = _sha256(str(dest))
 
@@ -293,10 +519,28 @@ def get_results(dump_id: str):
     )
 
     artifacts = []
+    dump_feature_values = []
+    is_batch = False
+    batch_summary = None
+
     if dump.features and dump.features.feature_data:
-        fd      = dump.features.feature_data
-        behav   = fd.get('behavioral_indicators', {})
-        artifacts = behav.get('injection_evidence', [])
+        fd = dump.features.feature_data
+
+        if fd.get('batch_mode'):
+            is_batch     = True
+            batch_summary = fd.get('batch_summary')
+        else:
+            behav     = fd.get('behavioral_indicators', {})
+            artifacts = behav.get('injection_evidence', [])
+            try:
+                from modules.feature_mapper import map_to_feature_vector, FEATURE_NAMES
+                vec = map_to_feature_vector(fd)[0]
+                dump_feature_values = [
+                    {'feature': name, 'value': float(val)}
+                    for name, val in zip(FEATURE_NAMES, vec)
+                ]
+            except Exception:
+                pass
 
     feature_importance = None
     if result:
@@ -304,22 +548,54 @@ def get_results(dump_id: str):
         if model_row:
             feature_importance = model_row.feature_importance
 
+    # For malicious individual dumps, recompute full family rankings on the fly
+    # so the UI can show all candidate families, not just the stored top-1.
+    category_rankings = None
+    family_rankings   = None
+    if result and result.prediction == 'Malware' and not is_batch and dump_feature_values:
+        try:
+            import numpy as np
+            from modules.feature_mapper import FEATURE_NAMES
+            from modules.family_classifier import predict_family
+            vec = np.array(
+                [f['value'] for f in dump_feature_values], dtype=np.float64
+            ).reshape(1, -1)
+            fr = predict_family(vec, top_n=15)
+            if fr:
+                category_rankings = fr.get('category_rankings')
+                family_rankings   = fr.get('family_rankings')
+        except Exception:
+            pass
+
     payload = {
-        'dump_id':             dump_id,
-        'file_name':           dump.file_name,
-        'status':              dump.status,
-        'dump':                dump.to_dict(),
-        'prediction':          None,
-        'confidence':          None,
-        'classification_date': None,
+        'dump_id':              dump_id,
+        'file_name':            dump.file_name,
+        'status':               dump.status,
+        'dump':                 dump.to_dict(),
+        'is_batch':             is_batch,
+        'batch_summary':        batch_summary,
+        'prediction':           None,
+        'confidence':           None,
+        'classification_date':  None,
+        'malware_category':     None,
+        'category_confidence':  None,
+        'malware_family':       None,
+        'family_confidence':    None,
+        'category_rankings':    category_rankings,
+        'family_rankings':      family_rankings,
         'suspicious_artifacts': artifacts,
-        'feature_importance':  feature_importance,
+        'feature_importance':   feature_importance,
+        'dump_feature_values':  dump_feature_values,
     }
 
     if result:
-        payload['prediction']          = result.prediction
-        payload['confidence']          = result.confidence
-        payload['classification_date'] = result.classification_date.isoformat()
+        payload['prediction']           = result.prediction
+        payload['confidence']           = result.confidence
+        payload['classification_date']  = result.classification_date.isoformat()
+        payload['malware_category']     = result.malware_category
+        payload['category_confidence']  = result.category_confidence
+        payload['malware_family']       = result.malware_family
+        payload['family_confidence']    = result.family_confidence
 
     return jsonify(payload), 200
 
@@ -501,6 +777,50 @@ def list_logs():
         rows.append(row)
 
     return jsonify({'logs': rows, 'total': total, 'page': page, 'per_page': per_page}), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  POST /cleanup  — delete all dump files from disk (admin only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@analysis_bp.post('/cleanup')
+@require_role(ADMIN)
+def cleanup_uploads():
+    """
+    Delete every dump file that still exists on disk.
+    DB records (metadata, features, results) are kept.
+    Returns counts of files deleted and bytes freed.
+    """
+    dumps      = MemoryDump.query.all()
+    deleted    = 0
+    freed      = 0
+    not_found  = 0
+    errors     = []
+
+    for dump in dumps:
+        path = Path(dump.file_path)
+        if not path.exists():
+            not_found += 1
+            continue
+        try:
+            size = path.stat().st_size
+            path.unlink()
+            deleted += 1
+            freed   += size
+        except Exception as exc:
+            errors.append(str(exc))
+
+    _audit('cleanup_uploads', details={
+        'deleted': deleted, 'freed_bytes': freed, 'errors': len(errors),
+    })
+    db.session.commit()
+
+    return jsonify({
+        'deleted':    deleted,
+        'not_found':  not_found,
+        'freed_mb':   round(freed / (1024 * 1024), 1),
+        'errors':     errors[:10],
+    }), 200
 
 
 # ══════════════════════════════════════════════════════════════════════════════

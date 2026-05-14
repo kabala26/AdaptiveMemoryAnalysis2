@@ -114,6 +114,17 @@ def _retrain() -> dict:
         clf, feature_names, val_metrics, test_metrics, fi, MODELS_DIR
     )
 
+    # Also retrain the secondary (category + family) classifiers
+    try:
+        from modules.family_classifier import train_secondary_models
+        sec = train_secondary_models(DATASET_PATH, MODELS_DIR)
+        logger.info(
+            "Secondary models retrained — category acc %.4f | family acc %.4f",
+            sec['category_accuracy'], sec['family_accuracy'],
+        )
+    except Exception as exc:
+        logger.warning("Secondary model retraining failed: %s", exc)
+
     new_accuracy = test_metrics['accuracy']
 
     # ── 5. Accuracy gate ──────────────────────────────────────────────────────

@@ -23,7 +23,7 @@ def create_app():
 
     # Upload
     app.config['UPLOAD_FOLDER']      = os.getenv('UPLOAD_FOLDER', str(Path(__file__).parent.parent / 'uploads'))
-    app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024   # 2 GB hard cap
+    app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024 * 1024   # 8 GB hard cap
 
     # JWT
     app.config['JWT_SECRET_KEY']           = os.environ['JWT_SECRET_KEY']

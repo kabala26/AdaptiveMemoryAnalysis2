@@ -91,19 +91,25 @@ class MlModel(db.Model):
 class AnalysisResult(db.Model):
     __tablename__ = 'results'
 
-    result_id           = db.Column(db.String(36), primary_key=True,
-                                    default=lambda: str(uuid.uuid4()))
-    dump_id             = db.Column(db.String(36),
-                                    db.ForeignKey('memory_dumps.dump_id', ondelete='CASCADE'),
-                                    nullable=False)
-    model_id            = db.Column(db.String(36),
-                                    db.ForeignKey('ml_models.model_id', ondelete='RESTRICT'),
-                                    nullable=False)
-    prediction          = db.Column(db.String(32), nullable=False)
-    confidence          = db.Column(db.Float, nullable=False)
-    classification_date = db.Column(db.DateTime(timezone=True),
-                                    default=lambda: datetime.now(timezone.utc),
-                                    nullable=False)
+    result_id            = db.Column(db.String(36), primary_key=True,
+                                     default=lambda: str(uuid.uuid4()))
+    dump_id              = db.Column(db.String(36),
+                                     db.ForeignKey('memory_dumps.dump_id', ondelete='CASCADE'),
+                                     nullable=False)
+    model_id             = db.Column(db.String(36),
+                                     db.ForeignKey('ml_models.model_id', ondelete='RESTRICT'),
+                                     nullable=False)
+    prediction           = db.Column(db.String(32), nullable=False)
+    confidence           = db.Column(db.Float, nullable=False)
+    classification_date  = db.Column(db.DateTime(timezone=True),
+                                     default=lambda: datetime.now(timezone.utc),
+                                     nullable=False)
+
+    # Stage 2 — populated only when prediction == 'Malware'
+    malware_category     = db.Column(db.String(64),  nullable=True)   # Ransomware|Spyware|Trojan
+    category_confidence  = db.Column(db.Float,        nullable=True)
+    malware_family       = db.Column(db.String(64),  nullable=True)   # Conti, Zeus, Emotet, …
+    family_confidence    = db.Column(db.Float,        nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint('dump_id', 'model_id', name='uq_result_dump_model'),
@@ -111,12 +117,16 @@ class AnalysisResult(db.Model):
 
     def to_dict(self):
         return {
-            'result_id':           self.result_id,
-            'dump_id':             self.dump_id,
-            'model_id':            self.model_id,
-            'prediction':          self.prediction,
-            'confidence':          self.confidence,
-            'classification_date': self.classification_date.isoformat(),
+            'result_id':            self.result_id,
+            'dump_id':              self.dump_id,
+            'model_id':             self.model_id,
+            'prediction':           self.prediction,
+            'confidence':           self.confidence,
+            'classification_date':  self.classification_date.isoformat(),
+            'malware_category':     self.malware_category,
+            'category_confidence':  self.category_confidence,
+            'malware_family':       self.malware_family,
+            'family_confidence':    self.family_confidence,
         }
 
 

@@ -670,16 +670,42 @@ class TestExtractBehavioralIndicators:
 # FeatureExtractor — extract_all (integration-level shape tests)
 # ─────────────────────────────────────────────────────────────────────────────
 
+_HANDLES_ROWS = [
+    {"PID": 1234, "Process": "svchost.exe", "Offset": "0x1000", "HandleValue": "0x4",
+     "Type": "Event",    "GrantedAccess": "0x1f0003", "Name": ""},
+    {"PID": 1234, "Process": "svchost.exe", "Offset": "0x1008", "HandleValue": "0x8",
+     "Type": "Mutant",   "GrantedAccess": "0x1f0001", "Name": ""},
+    {"PID": 5678, "Process": "notepad.exe", "Offset": "0x2000", "HandleValue": "0x4",
+     "Type": "File",     "GrantedAccess": "0x100020", "Name": "C:\\Windows\\notepad.exe"},
+    {"PID": 5678, "Process": "notepad.exe", "Offset": "0x2008", "HandleValue": "0x8",
+     "Type": "Section",  "GrantedAccess": "0x4", "Name": ""},
+]
+
+_SVCSCAN_ROWS = [
+    {"Offset": "0x1000", "Order": 1, "PID": -1,  "Start": "SERVICE_AUTO_START",
+     "State": "SERVICE_RUNNING", "Type": "SERVICE_KERNEL_DRIVER",
+     "Name": "klhk", "Display": "Kaspersky", "Binary": "\\SystemRoot\\System32\\DRIVERS\\klhk.sys"},
+    {"Offset": "0x2000", "Order": 2, "PID": 800, "Start": "SERVICE_AUTO_START",
+     "State": "SERVICE_RUNNING", "Type": "SERVICE_SHARE_PROCESS",
+     "Name": "svchost", "Display": "Svchost", "Binary": "svchost.exe"},
+    {"Offset": "0x3000", "Order": 3, "PID": -1,  "Start": "SERVICE_DEMAND_START",
+     "State": "SERVICE_STOPPED", "Type": "SERVICE_FILE_SYSTEM_DRIVER",
+     "Name": "null", "Display": "Null", "Binary": "\\SystemRoot\\System32\\Drivers\\Null.SYS"},
+]
+
+
 class TestExtractAll:
     def _make_side_effects(self):
         """Return plugin outputs in the order extract_all calls _run_plugin:
-        pslist, psscan, dlllist, vadinfo, malfind."""
+        pslist, psscan, dlllist, vadinfo, malfind, handles, svcscan."""
         return [
             _PSLIST_ROWS,
             _PSSCAN_ROWS_WITH_HIDDEN,
             _DLLLIST_ROWS,
             _VADINFO_ROWS,
             _MALFIND_ROWS,
+            _HANDLES_ROWS,
+            _SVCSCAN_ROWS,
         ]
 
     def test_top_level_keys_present(self, extractor):
@@ -689,6 +715,7 @@ class TestExtractAll:
             "dump_path", "extraction_timestamp",
             "process_features", "dll_features",
             "memory_region_features", "behavioral_indicators",
+            "handle_features", "service_features",
             "summary", "errors",
         }
         assert expected_keys <= result.keys()
@@ -698,7 +725,8 @@ class TestExtractAll:
             result = extractor.extract_all()
         summary_keys = {
             "process_count", "hidden_processes", "dll_count",
-            "suspicious_dlls", "rwx_regions", "malfind_hits", "risk_score",
+            "suspicious_dlls", "rwx_regions", "malfind_hits",
+            "nservices", "total_handles", "risk_score",
         }
         assert summary_keys <= result["summary"].keys()
 

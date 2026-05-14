@@ -1,34 +1,35 @@
 import { useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FileUp, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { FileUp, CheckCircle2, Loader2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
+import { useToast } from '../hooks/useToast.jsx'
 
-const ALLOWED = ['.raw', '.mem', '.dmp', '.vmem']
-const MAX_BYTES = 2 * 1024 * 1024 * 1024
+const ALLOWED = ['.raw', '.mem', '.dmp', '.vmem', '.csv']
+const MAX_BYTES = 8 * 1024 * 1024 * 1024
 const STAGES = ['uploading', 'validating', 'queued', 'processing', 'completed']
 
 function validate(file) {
   const ext = '.' + file.name.split('.').pop().toLowerCase()
   if (!ALLOWED.includes(ext)) return `Unsupported type "${ext}". Allowed: ${ALLOWED.join(', ')}`
-  if (file.size > MAX_BYTES) return 'File exceeds the 2 GB limit.'
+  if (file.size > MAX_BYTES) return 'File exceeds the 8 GB limit.'
   return null
 }
 
 export default function UploadPage() {
   const navigate = useNavigate()
   const inputRef = useRef(null)
+  const toast    = useToast()
   const [drag,     setDrag]     = useState(false)
   const [file,     setFile]     = useState(null)
   const [stage,    setStage]    = useState(null)
   const [progress, setProgress] = useState(0)
-  const [error,    setError]    = useState(null)
 
   const upload = useCallback(async (f) => {
     const err = validate(f)
-    if (err) { setError(err); return }
+    if (err) { toast.error(err); return }
 
-    setFile(f); setError(null); setStage('uploading'); setProgress(0)
+    setFile(f); setStage('uploading'); setProgress(0)
 
     const form = new FormData()
     form.append('file', f)
@@ -52,19 +53,20 @@ export default function UploadPage() {
           if (res.status === 'complete') {
             clearInterval(poll)
             setStage('completed')
+            toast.success('Analysis complete — loading results.')
             setTimeout(() => navigate(`/results/${dumpId}`), 1200)
           } else if (res.status === 'failed') {
             clearInterval(poll)
             setStage(null)
-            setError('Analysis failed on the server. Please try again.')
+            toast.error('Analysis failed on the server. Please try again.')
           }
         } catch (_) {}
       }, 3000)
     } catch (e) {
       setStage(null)
-      setError(e.response?.data?.message || 'Upload failed. Please try again.')
+      toast.error(e.response?.data?.message || 'Upload failed. Please try again.')
     }
-  }, [navigate])
+  }, [navigate, toast])
 
   const stageIdx = STAGES.indexOf(stage)
 
@@ -89,26 +91,15 @@ export default function UploadPage() {
                 : 'border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:border-blue-400 dark:hover:border-blue-500'
             }`}
           >
-            <input ref={inputRef} type="file" className="hidden" accept=".raw,.mem,.dmp,.vmem" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />
+            <input ref={inputRef} type="file" className="hidden" accept=".raw,.mem,.dmp,.vmem,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                 <FileUp className="w-8 h-8 text-gray-400" />
               </div>
               <div>
                 <p className="font-medium text-gray-700 dark:text-gray-200">Drop memory dump here or click to browse</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Accepts .raw · .mem · .dmp · .vmem — max 2 GB</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Accepts .raw · .mem · .dmp · .vmem · .csv — max 8 GB</p>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Error */}
-        {error && (
-          <div className="mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
-              <button onClick={() => setError(null)} className="mt-2 text-xs text-red-500 underline">Dismiss</button>
             </div>
           </div>
         )}
@@ -159,6 +150,13 @@ export default function UploadPage() {
                 )
               })}
             </div>
+
+            {stage === 'processing' && (
+              <p className="mt-4 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                Running Volatility forensic plugins — this takes <strong className="text-gray-500 dark:text-gray-400">3–10 minutes</strong> for a typical memory dump. Please keep this tab open.
+              </p>
+            )}
 
             {stage === 'completed' && (
               <p className="mt-6 text-sm text-green-600 dark:text-green-400 font-medium flex items-center gap-2">

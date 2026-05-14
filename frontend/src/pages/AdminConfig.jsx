@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Settings, Save, Check, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Settings, Save, Check, ToggleLeft, ToggleRight, Trash2, Loader2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import api from '../utils/api.js'
+import { useToast } from '../hooks/useToast.jsx'
 
 const DEFAULTS = {
   confidenceThreshold: 70,
@@ -23,11 +25,13 @@ function Toggle({ on, onToggle }) {
 }
 
 export default function AdminConfig() {
+  const toast = useToast()
   const [cfg, setCfg] = useState(() => {
     try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('memshield_config') || '{}') } }
     catch { return DEFAULTS }
   })
-  const [saved, setSaved] = useState(false)
+  const [saved,     setSaved]     = useState(false)
+  const [cleaning,  setCleaning]  = useState(false)
 
   function handleSave() {
     localStorage.setItem('memshield_config', JSON.stringify(cfg))
@@ -36,6 +40,18 @@ export default function AdminConfig() {
   }
 
   function set(key, val) { setCfg(c => ({ ...c, [key]: val })) }
+
+  async function handleCleanup() {
+    setCleaning(true)
+    try {
+      const { data } = await api.post('/analysis/cleanup')
+      toast.success(`Cleaned up ${data.deleted} file(s) — ${data.freed_mb} MB freed.`)
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Cleanup failed.')
+    } finally {
+      setCleaning(false)
+    }
+  }
 
   return (
     <Layout>
@@ -117,6 +133,24 @@ export default function AdminConfig() {
               <Toggle on={cfg[key]} onToggle={() => set(key, !cfg[key])} />
             </div>
           ))}
+        </div>
+
+        {/* Storage cleanup */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+          <h2 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Trash2 className="w-3.5 h-3.5" /> Storage Management
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Raw dump files are automatically deleted after analysis. Use this button to manually purge any remaining files. Analysis results and extracted features are kept in the database.
+          </p>
+          <button
+            onClick={handleCleanup}
+            disabled={cleaning}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-60 transition-colors"
+          >
+            {cleaning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            {cleaning ? 'Cleaning…' : 'Purge Upload Files'}
+          </button>
         </div>
 
         {/* Save */}

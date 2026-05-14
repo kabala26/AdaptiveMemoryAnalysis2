@@ -31,13 +31,18 @@ export default {
           '0%':   { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        slideIn: {
+          '0%':   { opacity: '0', transform: 'translateX(1.5rem)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
         spin: {
           to: { transform: 'rotate(360deg)' },
         },
       },
       animation: {
-        'fade-up': 'fadeUp 0.6s ease-out forwards',
-        spin:      'spin 1s linear infinite',
+        'fade-up':  'fadeUp 0.6s ease-out forwards',
+        'slide-in': 'slideIn 0.2s ease-out',
+        spin:       'spin 1s linear infinite',
       },
     },
   },

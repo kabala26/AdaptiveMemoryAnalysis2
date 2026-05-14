@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Cpu, CheckCircle2, RefreshCw, Download, AlertTriangle, Loader2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
+import { useToast } from '../hooks/useToast.jsx'
 
 function ConfirmDialog({ open, onConfirm, onCancel }) {
   if (!open) return null
@@ -47,14 +48,12 @@ function exportFeatureData(model) {
 }
 
 export default function AdminModels() {
-  const [models,    setModels]    = useState([])
-  const [loading,   setLoading]   = useState(true)
+  const toast = useToast()
+  const [models,      setModels]      = useState([])
+  const [loading,     setLoading]     = useState(true)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [retraining, setRetraining]  = useState(false)
-  const [activating, setActivating]  = useState(null)
-  const [toast,      setToast]       = useState(null)
-
-  function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 4000) }
+  const [retraining,  setRetraining]  = useState(false)
+  const [activating,  setActivating]  = useState(null)
 
   async function fetchModels() {
     api.get('/analysis/models')
@@ -70,10 +69,10 @@ export default function AdminModels() {
     setRetraining(true)
     try {
       await api.post('/analysis/retrain')
-      showToast('Retraining started — this may take a few minutes.')
+      toast.info('Retraining started — this may take a few minutes.')
       setTimeout(fetchModels, 60_000)
     } catch (e) {
-      showToast(e.response?.data?.message || 'Failed to start retraining.')
+      toast.error(e.response?.data?.message || 'Failed to start retraining.')
     } finally {
       setRetraining(false)
     }
@@ -84,9 +83,9 @@ export default function AdminModels() {
     try {
       await api.post(`/analysis/models/${modelId}/activate`)
       await fetchModels()
-      showToast('Model activated successfully.')
+      toast.success('Model activated successfully.')
     } catch (e) {
-      showToast(e.response?.data?.message || 'Failed to activate model.')
+      toast.error(e.response?.data?.message || 'Failed to activate model.')
     } finally {
       setActivating(null)
     }
@@ -95,12 +94,6 @@ export default function AdminModels() {
   return (
     <Layout>
       <ConfirmDialog open={showConfirm} onConfirm={handleRetrain} onCancel={() => setShowConfirm(false)} />
-
-      {toast && (
-        <div className="fixed top-6 right-6 z-50 px-4 py-3 rounded-xl bg-gray-900 dark:bg-gray-700 text-white text-sm shadow-xl">
-          {toast}
-        </div>
-      )}
 
       <div className="space-y-6 max-w-4xl">
         <div className="flex items-end justify-between flex-wrap gap-4">
