@@ -12,7 +12,8 @@ import AdminDashboard  from './pages/AdminDashboard.jsx'
 import AdminUsers      from './pages/AdminUsers.jsx'
 import AdminModels     from './pages/AdminModels.jsx'
 import AdminConfig     from './pages/AdminConfig.jsx'
-import AdminLogs       from './pages/AdminLogs.jsx'
+import AdminLogs            from './pages/AdminLogs.jsx'
+import AdminLabeledSamples from './pages/AdminLabeledSamples.jsx'
 
 function Loading() {
   return (
@@ -87,6 +88,7 @@ export default function App() {
           <Route path="/admin/models"    element={<AdminRoute><AdminModels /></AdminRoute>} />
           <Route path="/admin/config"    element={<AdminRoute><AdminConfig /></AdminRoute>} />
           <Route path="/admin/logs"      element={<AdminRoute><AdminLogs /></AdminRoute>} />
+          <Route path="/admin/samples"   element={<AdminRoute><AdminLabeledSamples /></AdminRoute>} />
 
           {/* Catch-all */}
           <Route path="*" element={<RootRedirect />} />

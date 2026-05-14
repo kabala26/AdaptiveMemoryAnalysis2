@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ShieldAlert, Activity, HardDrive, Cpu, FileSearch, Loader2, AlertTriangle } from 'lucide-react'
+import { Users, ShieldAlert, Activity, HardDrive, Cpu, FileSearch, Loader2, AlertTriangle, Trash2 } from 'lucide-react'
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
+import { useToast } from '../hooks/useToast.jsx'
 
 function StatCard({ label, value, sub, icon: Icon, accent = 'text-amber-600 dark:text-amber-400', iconBg = 'bg-amber-100 dark:bg-amber-900/20' }) {
   return (
@@ -27,13 +28,45 @@ const STATUS_COLORS = {
   failed:     'bg-red-500/10   text-red-600   dark:text-red-400   border-red-500/20',
 }
 
-export default function AdminDashboard() {
-  const [stats,   setStats]   = useState(null)
-  const [dumps,   setDumps]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [filter,  setFilter]  = useState({ prediction: '', search: '' })
+function ConfirmDeleteDialog({ open, fileName, onConfirm, onCancel }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 max-w-sm w-full mx-4 shadow-2xl">
+        <div className="flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+            <Trash2 className="w-7 h-7 text-red-500" />
+          </div>
+          <div>
+            <h3 className="font-display text-xl text-gray-900 dark:text-white">Delete Dump?</h3>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              This permanently deletes <strong className="text-gray-800 dark:text-gray-200">{fileName}</strong> and all associated results. This action cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3 w-full">
+            <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors">
+              Delete
+            </button>
+            <button onClick={onCancel} className="flex-1 py-3 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-  useEffect(() => {
+export default function AdminDashboard() {
+  const toast = useToast()
+  const [stats,       setStats]       = useState(null)
+  const [dumps,       setDumps]       = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [filter,      setFilter]      = useState({ prediction: '', search: '' })
+  const [deleteTarget, setDeleteTarget] = useState(null)  // { dump_id, file_name }
+  const [deleting,     setDeleting]     = useState(null)
+
+  const fetchData = useCallback(() => {
     Promise.all([
       api.get('/analysis/stats'),
       api.get('/analysis/dumps'),
@@ -42,6 +75,23 @@ export default function AdminDashboard() {
       setDumps(d.data.dumps || [])
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(deleteTarget.dump_id)
+    setDeleteTarget(null)
+    try {
+      await api.delete(`/analysis/dumps/${deleteTarget.dump_id}`)
+      setDumps(prev => prev.filter(d => d.dump_id !== deleteTarget.dump_id))
+      toast.success(`"${deleteTarget.file_name}" deleted.`)
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to delete dump.')
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     let rows = dumps
@@ -60,13 +110,34 @@ export default function AdminDashboard() {
     { header: 'Status',     accessorKey: 'status',      cell: i => <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${STATUS_COLORS[i.getValue()] || STATUS_COLORS.pending}`}>{i.getValue()}</span> },
     { header: 'Prediction', accessorKey: 'prediction',  cell: i => { const v = i.getValue(); return v ? <span className={`text-xs font-bold uppercase ${v === 'Malware' ? 'text-red-500' : 'text-green-500'}`}>{v}</span> : <span className="text-xs text-gray-400">—</span> } },
     { header: 'Confidence', accessorKey: 'confidence',  cell: i => { const v = i.getValue(); return v != null ? <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{(v*100).toFixed(1)}%</span> : <span className="text-xs text-gray-400">—</span> } },
-    { id: 'view', header: '', cell: i => <Link to={`/results/${i.row.original.dump_id}`} className="text-xs text-amber-600 dark:text-amber-400 hover:underline font-medium">View →</Link> },
-  ], [])
+    { id: 'view',   header: '', cell: i => <Link to={`/results/${i.row.original.dump_id}`} className="text-xs text-amber-600 dark:text-amber-400 hover:underline font-medium">View →</Link> },
+    { id: 'delete', header: '', cell: i => {
+        const row = i.row.original
+        const isDeleting = deleting === row.dump_id
+        return (
+          <button
+            disabled={isDeleting || row.status === 'processing'}
+            onClick={() => setDeleteTarget({ dump_id: row.dump_id, file_name: row.file_name })}
+            title="Delete dump"
+            className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          </button>
+        )
+      }
+    },
+  ], [deleting])
 
   const table = useReactTable({ data: filtered, columns, getCoreRowModel: getCoreRowModel() })
 
   return (
     <Layout>
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        fileName={deleteTarget?.file_name}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Admin Dashboard</h1>
@@ -90,10 +161,11 @@ export default function AdminDashboard() {
         {/* Quick nav */}
         <div className="flex flex-wrap gap-2">
           {[
-            { label: 'Manage Users',   href: '/admin/users'  },
-            { label: 'Model Versions', href: '/admin/models' },
-            { label: 'Config',         href: '/admin/config' },
-            { label: 'Audit Logs',     href: '/admin/logs'   },
+            { label: 'Manage Users',     href: '/admin/users'    },
+            { label: 'Model Versions',   href: '/admin/models'   },
+            { label: 'Labeled Samples',  href: '/admin/samples'  },
+            { label: 'Config',           href: '/admin/config'   },
+            { label: 'Audit Logs',       href: '/admin/logs'     },
           ].map(l => (
             <Link key={l.href} to={l.href} className="px-4 py-2 text-xs font-medium rounded-lg border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
               {l.label}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import { useToast } from '../hooks/useToast.jsx'
-import { Users, Shield, UserX, Loader2 } from 'lucide-react'
+import { Users, Shield, UserX, UserCheck, Loader2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
 
@@ -38,10 +38,17 @@ export default function AdminUsers() {
     }
   }
 
-  async function handleDeactivate(userId, active) {
-    // API endpoint for deactivation would be /auth/users/<id>/deactivate
-    // Placeholder — wire up when backend endpoint is ready
-    toast.info('Account status change coming soon.')
+  async function handleDeactivate(userId, isCurrentlyActive) {
+    setSaving(userId)
+    try {
+      const { data } = await api.post(`/auth/users/${userId}/deactivate`)
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: data.user.is_active } : u))
+      toast.success(data.message)
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to update account status.')
+    } finally {
+      setSaving(null)
+    }
   }
 
   const stats = {
@@ -123,14 +130,18 @@ export default function AdminUsers() {
 
                   {saving === u.id && <Loader2 className="w-4 h-4 text-gray-400 animate-spin flex-shrink-0" />}
 
-                  {/* Deactivate */}
+                  {/* Activate / Deactivate */}
                   <button
-                    disabled={u.id === me?.id}
+                    disabled={u.id === me?.id || saving === u.id}
                     onClick={() => handleDeactivate(u.id, u.is_active)}
-                    title={u.is_active ? 'Deactivate account' : 'Activate account'}
-                    className="p-2 rounded-lg text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                    title={u.is_active ? 'Deactivate account' : 'Reactivate account'}
+                    className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 ${
+                      u.is_active
+                        ? 'text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500'
+                        : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-600'
+                    }`}
                   >
-                    <UserX className="w-4 h-4" />
+                    {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
                   </button>
                 </div>
               ))}

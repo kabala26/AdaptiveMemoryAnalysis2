@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   Shield, LayoutDashboard, FileUp, FileText,
-  Users, Cpu, Settings, ShieldAlert, Search, LogOut,
+  Users, Cpu, Settings, ShieldAlert, Search, LogOut, Tag,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import ThemeToggle from './ThemeToggle.jsx'
@@ -14,13 +14,14 @@ const ANALYST_LINKS = [
 ]
 
 const ADMIN_LINKS = [
-  { label: 'Dashboard',     icon: LayoutDashboard, href: '/admin/dashboard' },
-  { label: 'Upload',        icon: FileUp,           href: '/upload' },
-  { label: 'All Analyses',  icon: Search,           href: '/admin/dashboard' },
-  { label: 'Users',         icon: Users,            href: '/admin/users' },
-  { label: 'Models',        icon: Cpu,              href: '/admin/models' },
-  { label: 'Config',        icon: Settings,         href: '/admin/config' },
-  { label: 'Logs',          icon: ShieldAlert,      href: '/admin/logs' },
+  { label: 'Dashboard',        icon: LayoutDashboard, href: '/admin/dashboard' },
+  { label: 'Upload',           icon: FileUp,           href: '/upload' },
+  { label: 'All Analyses',     icon: Search,           href: '/admin/dashboard' },
+  { label: 'Users',            icon: Users,            href: '/admin/users' },
+  { label: 'Models',           icon: Cpu,              href: '/admin/models' },
+  { label: 'Labeled Samples',  icon: Tag,              href: '/admin/samples' },
+  { label: 'Config',           icon: Settings,         href: '/admin/config' },
+  { label: 'Logs',             icon: ShieldAlert,      href: '/admin/logs' },
 ]
 
 export default function Layout({ children }) {

@@ -753,13 +753,16 @@ def activate_model(model_id: str):
 def list_logs():
     from ..models.user import User
 
-    page     = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
-    user_filter = request.args.get('user_id')
+    page         = request.args.get('page', 1, type=int)
+    per_page     = request.args.get('per_page', 50, type=int)
+    user_filter  = request.args.get('user_id')
+    action_filter = request.args.get('action')
 
     query = AuditLog.query
     if user_filter:
         query = query.filter_by(user_id=user_filter)
+    if action_filter:
+        query = query.filter_by(action=action_filter)
 
     logs  = query.order_by(AuditLog.timestamp.desc()).offset((page - 1) * per_page).limit(per_page).all()
     total = query.count()
@@ -777,6 +780,37 @@ def list_logs():
         rows.append(row)
 
     return jsonify({'logs': rows, 'total': total, 'page': page, 'per_page': per_page}), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DELETE /dumps/<dump_id>  — permanently delete a dump (admin only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@analysis_bp.delete('/dumps/<dump_id>')
+@require_role(ADMIN)
+def delete_dump(dump_id: str):
+    """
+    Permanently delete a dump and all associated DB records.
+    FK cascades handle features and results automatically.
+    """
+    dump = db.session.get(MemoryDump, dump_id)
+    if dump is None:
+        return _error('Dump not found.', 404)
+
+    if dump.status == 'processing':
+        return _error('Cannot delete a dump that is currently being analysed.', 409)
+
+    file_name = dump.file_name
+    try:
+        Path(dump.file_path).unlink(missing_ok=True)
+    except Exception as exc:
+        current_app.logger.warning('Could not delete file for dump %s: %s', dump_id, exc)
+
+    _audit('delete_dump', 'dump', dump_id, {'file_name': file_name})
+    db.session.delete(dump)
+    db.session.commit()
+
+    return jsonify({'message': f'Dump {dump_id} deleted.'}), 200
 
 
 # ══════════════════════════════════════════════════════════════════════════════

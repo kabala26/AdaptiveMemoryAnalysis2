@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ShieldAlert, ChevronLeft, ChevronRight, Loader2, Filter } from 'lucide-react'
+import { ShieldAlert, ChevronLeft, ChevronRight, Loader2, Filter, Download } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
 
@@ -8,31 +8,72 @@ const ACTION_COLORS = {
   analyze:        'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   retrain:        'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
   activate_model: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  delete_dump:    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  label_sample:   'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+  cleanup_uploads:'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+}
+
+const ACTION_OPTIONS = [
+  { value: '',               label: 'All actions' },
+  { value: 'upload',         label: 'Upload' },
+  { value: 'analyze',        label: 'Analyze' },
+  { value: 'retrain',        label: 'Retrain' },
+  { value: 'activate_model', label: 'Activate Model' },
+  { value: 'delete_dump',    label: 'Delete Dump' },
+  { value: 'label_sample',   label: 'Label Sample' },
+  { value: 'cleanup_uploads','label': 'Cleanup' },
+]
+
+function exportLogsCSV(logs) {
+  const header = 'timestamp,user,email,action,resource_type,resource_id,ip_address'
+  const rows = logs.map(l => [
+    l.timestamp,
+    l.user_name  || '',
+    l.user_email || '',
+    l.action,
+    l.resource_type || '',
+    l.resource_id   || '',
+    l.ip_address    || '',
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+  const csv  = [header, ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export default function AdminLogs() {
-  const [logs,    setLogs]    = useState([])
-  const [total,   setTotal]   = useState(0)
-  const [page,    setPage]    = useState(1)
-  const [loading, setLoading] = useState(true)
-  const [filter,  setFilter]  = useState({ search: '' })
+  const [logs,         setLogs]         = useState([])
+  const [total,        setTotal]        = useState(0)
+  const [page,         setPage]         = useState(1)
+  const [loading,      setLoading]      = useState(true)
+  const [actionFilter, setActionFilter] = useState('')
+  const [search,       setSearch]       = useState('')
   const PER_PAGE = 50
 
   const fetchLogs = useCallback(() => {
     setLoading(true)
-    api.get(`/analysis/logs?page=${page}&per_page=${PER_PAGE}`)
+    const params = new URLSearchParams({ page, per_page: PER_PAGE })
+    if (actionFilter) params.set('action', actionFilter)
+    api.get(`/analysis/logs?${params}`)
       .then(r => { setLogs(r.data.logs || []); setTotal(r.data.total || 0) })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [page])
+  }, [page, actionFilter])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
 
-  const filtered = filter.search
+  // Reset to page 1 when filter changes
+  useEffect(() => { setPage(1) }, [actionFilter])
+
+  const filtered = search
     ? logs.filter(l =>
-        l.user_name?.toLowerCase().includes(filter.search.toLowerCase()) ||
-        l.action?.includes(filter.search.toLowerCase()) ||
-        l.ip_address?.includes(filter.search)
+        l.user_name?.toLowerCase().includes(search.toLowerCase()) ||
+        l.action?.includes(search.toLowerCase()) ||
+        l.ip_address?.includes(search)
       )
     : logs
 
@@ -41,24 +82,45 @@ export default function AdminLogs() {
   return (
     <Layout>
       <div className="space-y-6 max-w-5xl">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Audit Logs</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">User activity and system events</p>
+        <div className="flex items-end justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Audit Logs</h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">User activity and system events</p>
+          </div>
+          <button
+            onClick={() => exportLogsCSV(filtered)}
+            disabled={filtered.length === 0}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
+          >
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
         </div>
 
         {/* Filters */}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <div className="relative">
             <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Filter by user, action, IP…"
-              value={filter.search}
-              onChange={e => setFilter({ search: e.target.value })}
+              placeholder="Filter by user or IP…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
               className="input-field pl-9 max-w-xs text-sm"
             />
           </div>
-          <button onClick={fetchLogs} className="px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+          <select
+            value={actionFilter}
+            onChange={e => setActionFilter(e.target.value)}
+            className="input-field max-w-[180px] text-sm"
+          >
+            {ACTION_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={fetchLogs}
+            className="px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
             Refresh
           </button>
         </div>
@@ -85,7 +147,7 @@ export default function AdminLogs() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    {['Timestamp', 'User', 'Action', 'Resource', 'IP Address'].map(h => (
+                    {['Timestamp', 'User', 'Action', 'Resource', 'IP Address', 'Details'].map(h => (
                       <th key={h} className="px-5 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -117,6 +179,16 @@ export default function AdminLogs() {
                       </td>
                       <td className="px-5 py-3.5">
                         <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{log.ip_address || '—'}</span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {log.details && Object.keys(log.details).length > 0 ? (
+                          <details className="text-[10px] text-gray-400 cursor-pointer">
+                            <summary className="select-none hover:text-gray-600 dark:hover:text-gray-300">View</summary>
+                            <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-900 rounded text-[9px] font-mono max-w-[200px] overflow-auto">
+                              {JSON.stringify(log.details, null, 2)}
+                            </pre>
+                          </details>
+                        ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       </td>
                     </tr>
                   ))}

@@ -394,3 +394,26 @@ def assign_role(user_id):
 
     return jsonify({'user': user.to_dict(), 'message': f'Role updated to {role}'}), 200
 
+
+@auth_bp.post('/users/<user_id>/deactivate')
+@jwt_required()
+def toggle_user_active(user_id):
+    """Toggle a user's active/inactive status (admin only)."""
+    error = _require_admin()
+    if error:
+        return error
+
+    caller_id = get_jwt_identity()
+    if user_id == caller_id:
+        return _error('You cannot deactivate your own account.', 400)
+
+    user = User.query.get(user_id)
+    if not user:
+        return _error('User not found.', 404)
+
+    user.is_active = not user.is_active
+    db.session.commit()
+
+    status = 'activated' if user.is_active else 'deactivated'
+    return jsonify({'user': user.to_dict(), 'message': f'Account {status}.'}), 200
+
