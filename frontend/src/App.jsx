@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { AuthProvider, useAuth } from './hooks/useAuth.jsx'
 import { ThemeProvider } from './hooks/useTheme.jsx'
 import { ToastProvider } from './hooks/useToast.jsx'
@@ -14,6 +15,30 @@ import AdminModels     from './pages/AdminModels.jsx'
 import AdminConfig     from './pages/AdminConfig.jsx'
 import AdminLogs            from './pages/AdminLogs.jsx'
 import AdminLabeledSamples from './pages/AdminLabeledSamples.jsx'
+
+const PAGE_TITLES = {
+  '/auth':               'Sign In',
+  '/upload':             'Upload',
+  '/analyst/dashboard':  'Dashboard',
+  '/analyst/reports':    'My Reports',
+  '/admin/dashboard':    'Admin Dashboard',
+  '/admin/users':        'Manage Users',
+  '/admin/models':       'Model Versions',
+  '/admin/config':       'Configuration',
+  '/admin/logs':         'Audit Logs',
+  '/admin/samples':      'Labeled Samples',
+}
+
+function DynamicTitle() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    const base = pathname.startsWith('/results/')
+      ? 'Analysis Results'
+      : PAGE_TITLES[pathname] || 'MemShield'
+    document.title = base === 'MemShield' ? 'MemShield' : `${base} — MemShield`
+  }, [pathname])
+  return null
+}
 
 function Loading() {
   return (
@@ -62,6 +87,7 @@ export default function App() {
       <ToastProvider>
       <AuthProvider>
         <div className="grain-overlay" aria-hidden="true" />
+        <DynamicTitle />
         <Routes>
           {/* Root → role dashboard */}
           <Route path="/" element={<RootRedirect />} />
