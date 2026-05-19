@@ -91,8 +91,8 @@ def _audit(action: str, resource_type: str = None, resource_id: str = None, deta
 
 # ── Background workers ────────────────────────────────────────────────────────
 
-_ANALYSIS_TIMEOUT_SECONDS = 600   # 10 minutes hard cap for slow plugins
-_FAST_TIMEOUT_SECONDS    = 300   # 5 minutes cap for fast-plugin phase
+_ANALYSIS_TIMEOUT_SECONDS = 1800  # 30 minutes hard cap (large dumps need time)
+_FAST_TIMEOUT_SECONDS    = 900   # 15 minutes cap for fast-plugin phase
 _BENIGN_THRESHOLD        = 0.80  # skip slow plugins when Benign confidence ≥ this
 
 
@@ -183,6 +183,7 @@ def _classify_csv_batch(file_path: str) -> dict:
 def _analysis_worker(app, dump_id: str, file_path: str):
     """Run extraction + classification in a daemon thread."""
     import concurrent.futures as _cf
+    import multiprocessing as _mp
 
     with app.app_context():
         dump = db.session.get(MemoryDump, dump_id)
@@ -229,18 +230,132 @@ def _analysis_worker(app, dump_id: str, file_path: str):
 
             # ── Memory dump mode (two-phase) ──────────────────────────────────
             else:
-                from modules.feature_extractor import extract_fast_features, extract_features
+                from modules.feature_extractor import (
+                    SymbolsUnavailableError, extract_fast_features, extract_features,
+                )
+
+                # ── Helper: run extraction in a child process (killable) ───────
+                def _run_in_process(fn, timeout_sec):
+                    """
+                    Run fn() in a child process and return its result.
+
+                    Uses a temp file for IPC instead of multiprocessing.Queue or
+                    Pipe.  Queue has a feeder-thread race (the OS pipe buffer is
+                    64 KB; for multi-MB feature dicts the feeder may still be
+                    writing when the parent polls the queue).  Pipe has a deadlock
+                    when the parent is in p.join() instead of draining.  A temp
+                    file has neither problem: the child writes the full pickle to
+                    disk atomically, the parent reads it after the process exits.
+                    """
+                    import pickle  as _pickle
+                    import tempfile as _tempfile
+                    import time    as _time
+                    import os      as _os
+
+                    fd, result_path = _tempfile.mkstemp(suffix='.pkl', prefix='vol_result_')
+                    _os.close(fd)
+
+                    def _worker():
+                        try:
+                            payload = ('ok', fn())
+                        except SymbolsUnavailableError as exc:
+                            payload = ('sym_err', {
+                                'message':  str(exc),
+                                'pdb_name': exc.pdb_name,
+                                'guid':     exc.guid,
+                            })
+                        except BaseException as exc:
+                            import traceback as _tb
+                            payload = ('err', f'{type(exc).__name__}: {exc}\n{_tb.format_exc()}')
+                        with open(result_path, 'wb') as fh:
+                            _pickle.dump(payload, fh)
+
+                    p = _mp.Process(target=_worker)
+                    p.start()
+
+                    deadline  = _time.monotonic() + timeout_sec
+                    timed_out = False
+
+                    while _time.monotonic() < deadline:
+                        _time.sleep(1.0)
+                        if not p.is_alive():
+                            break
+                    else:
+                        timed_out = True
+
+                    p.join(timeout=10)
+                    if p.is_alive():
+                        p.kill()
+                        p.join()
+
+                    current_app.logger.info(
+                        'Child process finished (exitcode=%s, timed_out=%s) for dump %s',
+                        p.exitcode, timed_out, dump_id,
+                    )
+
+                    result = None
+                    try:
+                        if _os.path.getsize(result_path) > 0:
+                            with open(result_path, 'rb') as fh:
+                                result = _pickle.load(fh)
+                    except Exception as load_exc:
+                        current_app.logger.error(
+                            'Could not read result file for dump %s: %s', dump_id, load_exc,
+                        )
+                    finally:
+                        try:
+                            _os.unlink(result_path)
+                        except Exception:
+                            pass
+
+                    if result is None:
+                        if timed_out:
+                            raise TimeoutError(
+                                f'Extraction exceeded {timeout_sec // 60} minutes — '
+                                'dump may be too large or corrupted.'
+                            )
+                        raise TimeoutError('Extraction subprocess produced no result.')
+
+                    return result
+
+                # ── Helper: handle a sym_err result ───────────────────────────
+                def _handle_sym_err(detail: dict) -> None:
+                    """Persist a no_symbols outcome and return; do not raise."""
+                    current_app.logger.error(
+                        'Missing symbols for dump %s — PDB: %s  GUID: %s',
+                        dump_id, detail.get('pdb_name', ''), detail.get('guid', ''),
+                    )
+                    feat = AnalysisFeatures(
+                        dump_id       = dump_id,
+                        process_count = None,
+                        dll_count     = None,
+                        feature_data  = {
+                            'no_symbols': True,
+                            'pdb_name':   detail.get('pdb_name', ''),
+                            'guid':       detail.get('guid', ''),
+                            'message':    detail.get('message', ''),
+                        },
+                    )
+                    db.session.add(feat)
+                    dump.status = 'no_symbols'
+                    db.session.commit()
+                    try:
+                        Path(file_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
                 # Phase 1 — fast plugins only (PsList, PsScan, DllList, VadInfo, Handles)
-                try:
-                    with _cf.ThreadPoolExecutor(max_workers=1) as pool:
-                        future = pool.submit(extract_fast_features, file_path)
-                        extracted_fast = future.result(timeout=_FAST_TIMEOUT_SECONDS)
-                except _cf.TimeoutError:
-                    raise TimeoutError(
-                        f'Fast feature extraction exceeded {_FAST_TIMEOUT_SECONDS // 60} '
-                        'minutes — dump may be too large or corrupted.'
-                    )
+                status_fast, payload_fast = _run_in_process(
+                    lambda: extract_fast_features(file_path),
+                    _FAST_TIMEOUT_SECONDS,
+                )
+
+                if status_fast == 'sym_err':
+                    _handle_sym_err(payload_fast)
+                    return
+                if status_fast == 'err':
+                    raise RuntimeError(payload_fast)
+                extracted_fast = payload_fast
 
                 vec_fast  = map_to_feature_vector(extracted_fast)
                 model_row = _latest_model()
@@ -279,16 +394,17 @@ def _analysis_worker(app, dump_id: str, file_path: str):
                             'Dump %s classified as %s (conf %.2f) at fast phase — '
                             'running Malfind/SvcScan.', dump_id, pred_fast, conf_fast
                         )
-                        try:
-                            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
-                                future = pool.submit(extract_features, file_path)
-                                extracted = future.result(timeout=_ANALYSIS_TIMEOUT_SECONDS)
-                        except _cf.TimeoutError:
-                            raise TimeoutError(
-                                f'Feature extraction exceeded '
-                                f'{_ANALYSIS_TIMEOUT_SECONDS // 60} minutes — '
-                                'dump may be too large or corrupted.'
-                            )
+                        status_full, payload_full = _run_in_process(
+                            lambda: extract_features(file_path),
+                            _ANALYSIS_TIMEOUT_SECONDS,
+                        )
+
+                        if status_full == 'sym_err':
+                            _handle_sym_err(payload_full)
+                            return
+                        if status_full == 'err':
+                            raise RuntimeError(payload_full)
+                        extracted = payload_full
 
                         vec        = map_to_feature_vector(extracted)
                         label      = clf.predict(vec)[0]
@@ -523,11 +639,22 @@ def get_results(dump_id: str):
     is_batch = False
     batch_summary = None
 
+    # ── Feature data / error details ────────────────────────────────────────
+    no_symbols_detail = None
+
     if dump.features and dump.features.feature_data:
         fd = dump.features.feature_data
 
-        if fd.get('batch_mode'):
-            is_batch     = True
+        if fd.get('no_symbols'):
+            # Symbol-error outcome stored by _handle_sym_err
+            no_symbols_detail = {
+                'pdb_name':    fd.get('pdb_name', ''),
+                'guid':        fd.get('guid', ''),
+                'message':     fd.get('message', ''),
+                'retry_after': 30,
+            }
+        elif fd.get('batch_mode'):
+            is_batch      = True
             batch_summary = fd.get('batch_summary')
         else:
             behav     = fd.get('behavioral_indicators', {})
@@ -572,6 +699,8 @@ def get_results(dump_id: str):
         'file_name':            dump.file_name,
         'status':               dump.status,
         'dump':                 dump.to_dict(),
+        'error_type':           'no_symbols' if dump.status == 'no_symbols' else None,
+        'no_symbols_detail':    no_symbols_detail,
         'is_batch':             is_batch,
         'batch_summary':        batch_summary,
         'prediction':           None,

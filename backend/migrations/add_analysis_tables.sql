@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS memory_dumps (
     file_size    BIGINT        NOT NULL,           -- bytes
     upload_date  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     status       VARCHAR(32)   NOT NULL DEFAULT 'pending'
-                               CHECK (status IN ('pending', 'processing', 'complete', 'failed')),
+                               CHECK (status IN ('pending', 'processing', 'complete', 'failed', 'no_symbols')),
     hash_value   VARCHAR(64)                       -- SHA-256 hex digest
 );
 

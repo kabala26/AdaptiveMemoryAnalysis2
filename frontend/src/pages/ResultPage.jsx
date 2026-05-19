@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, FileText, Calendar, HardDrive, Hash, Loader2, Shield, Bug } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileText, Calendar, HardDrive, Hash, Loader2, Shield, Bug, DatabaseZap, RefreshCw } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
 
@@ -113,6 +113,89 @@ export default function ResultPage() {
         <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
         <p className="text-gray-600 dark:text-gray-400">{error}</p>
         <Link to="/upload" className="mt-4 inline-block text-sm text-blue-600 dark:text-blue-400 underline">← Upload another</Link>
+      </div>
+    </Layout>
+  )
+
+  // ── Missing symbol table ──────────────────────────────────────────────────
+  if (result?.status === 'no_symbols') {
+    const d = result.no_symbols_detail || {}
+    return (
+      <Layout>
+        <div className="max-w-2xl mx-auto mt-16 space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+              <DatabaseZap className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Symbol Table Not Found</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Analysis could not proceed — Windows kernel symbols are missing</p>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-2xl p-6 space-y-4">
+            <p className="text-sm text-amber-800 dark:text-amber-300 leading-relaxed">
+              Volatility 3 requires a symbol table (ISF file) that matches the exact Windows kernel
+              build inside this memory dump. No matching file was found on this server, and
+              auto-download from Microsoft's symbol server either failed or was not attempted yet.
+            </p>
+
+            {(d.pdb_name || d.guid) && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-amber-200 dark:border-amber-700 p-4 space-y-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Kernel build info extracted from dump</p>
+                {d.pdb_name && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 w-20">PDB Name</span>
+                    <code className="text-xs font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">{d.pdb_name}</code>
+                  </div>
+                )}
+                {d.guid && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 w-20">GUID</span>
+                    <code className="text-xs font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded break-all">{d.guid}</code>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">How to fix (admin action required)</p>
+              <ol className="text-sm text-amber-800 dark:text-amber-300 space-y-1.5 list-decimal list-inside">
+                <li>
+                  Run <code className="text-xs bg-white dark:bg-gray-800 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-700">venv/bin/python download_symbols.py</code> on
+                  the server to install the full Volatility 3 symbol pack (~600 MB).
+                </li>
+                <li>
+                  Or re-submit this dump — Volatility will attempt to auto-download the specific
+                  symbol file for this kernel build from Microsoft's symbol server.
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <Link to="/upload" className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              ← Upload another
+            </Link>
+            <Link
+              to="/upload"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm bg-amber-600 hover:bg-amber-500 text-white font-medium transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" /> Re-upload &amp; retry
+            </Link>
+          </div>
+        </div>
+      </Layout>
+    )
+  }
+
+  if (result?.status === 'failed') return (
+    <Layout>
+      <div className="max-w-lg mx-auto mt-20 text-center">
+        <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+        <p className="text-gray-900 dark:text-white font-semibold mb-1">Analysis Failed</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">The server could not complete analysis for this dump. This may be due to a corrupted file or an internal error.</p>
+        <Link to="/upload" className="inline-block text-sm text-blue-600 dark:text-blue-400 underline">← Upload another</Link>
       </div>
     </Layout>
   )

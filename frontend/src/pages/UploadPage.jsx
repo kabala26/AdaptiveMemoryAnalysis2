@@ -59,6 +59,10 @@ export default function UploadPage() {
             clearInterval(poll)
             setStage(null)
             toast.error('Analysis failed on the server. Please try again.')
+          } else if (res.status === 'no_symbols') {
+            clearInterval(poll)
+            setStage(null)
+            navigate(`/results/${dumpId}`)
           }
         } catch (_) {}
       }, 3000)

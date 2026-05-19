@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ShieldAlert, Activity, HardDrive, Cpu, FileSearch, Loader2, AlertTriangle, Trash2 } from 'lucide-react'
+import { Users, ShieldAlert, Activity, HardDrive, Cpu, FileSearch, Loader2, AlertTriangle, Trash2, Download } from 'lucide-react'
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
 import { useToast } from '../hooks/useToast.jsx'
+import { downloadReportPdf } from '../utils/reportPdf.js'
 
 function StatCard({ label, value, sub, icon: Icon, accent = 'text-amber-600 dark:text-amber-400', iconBg = 'bg-amber-100 dark:bg-amber-900/20' }) {
   return (
@@ -63,8 +64,9 @@ export default function AdminDashboard() {
   const [dumps,       setDumps]       = useState([])
   const [loading,     setLoading]     = useState(true)
   const [filter,      setFilter]      = useState({ prediction: '', search: '' })
-  const [deleteTarget, setDeleteTarget] = useState(null)  // { dump_id, file_name }
-  const [deleting,     setDeleting]     = useState(null)
+  const [deleteTarget,  setDeleteTarget]  = useState(null)
+  const [deleting,      setDeleting]      = useState(null)
+  const [downloading,   setDownloading]   = useState(null)
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -103,6 +105,20 @@ export default function AdminDashboard() {
     return rows
   }, [dumps, filter])
 
+  async function handleDownload(dump) {
+    setDownloading(dump.dump_id)
+    try {
+      await downloadReportPdf(dump, async (dumpId) => {
+        const res = await api.get(`/analysis/results/${dumpId}`)
+        return res.data
+      })
+    } catch (e) {
+      toast.error('Failed to generate report.')
+    } finally {
+      setDownloading(null)
+    }
+  }
+
   const columns = useMemo(() => [
     { header: 'Filename',   accessorKey: 'file_name',   cell: i => <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{i.getValue()}</span> },
     { header: 'User',       accessorKey: 'user_name',   cell: i => <span className="text-xs text-gray-500 dark:text-gray-400">{i.getValue() || '—'}</span> },
@@ -110,14 +126,29 @@ export default function AdminDashboard() {
     { header: 'Status',     accessorKey: 'status',      cell: i => <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${STATUS_COLORS[i.getValue()] || STATUS_COLORS.pending}`}>{i.getValue()}</span> },
     { header: 'Prediction', accessorKey: 'prediction',  cell: i => { const v = i.getValue(); return v ? <span className={`text-xs font-bold uppercase ${v === 'Malware' ? 'text-red-500' : 'text-green-500'}`}>{v}</span> : <span className="text-xs text-gray-400">—</span> } },
     { header: 'Confidence', accessorKey: 'confidence',  cell: i => { const v = i.getValue(); return v != null ? <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{(v*100).toFixed(1)}%</span> : <span className="text-xs text-gray-400">—</span> } },
-    { id: 'view',   header: '', cell: i => <Link to={`/results/${i.row.original.dump_id}`} className="text-xs text-amber-600 dark:text-amber-400 hover:underline font-medium">View →</Link> },
+    { id: 'view',     header: '', cell: i => <Link to={`/results/${i.row.original.dump_id}`} className="text-xs text-amber-600 dark:text-amber-400 hover:underline font-medium">View →</Link> },
+    { id: 'download', header: '', cell: i => {
+        const dump = i.row.original
+        const isDl = downloading === dump.dump_id
+        return dump.status === 'complete' ? (
+          <button
+            onClick={() => handleDownload(dump)}
+            disabled={isDl}
+            title="Download PDF report"
+            className="p-1.5 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-500 transition-colors disabled:opacity-30"
+          >
+            {isDl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          </button>
+        ) : null
+      }
+    },
     { id: 'delete', header: '', cell: i => {
-        const row = i.row.original
-        const isDeleting = deleting === row.dump_id
+        const dump = i.row.original
+        const isDeleting = deleting === dump.dump_id
         return (
           <button
-            disabled={isDeleting || row.status === 'processing'}
-            onClick={() => setDeleteTarget({ dump_id: row.dump_id, file_name: row.file_name })}
+            disabled={isDeleting || dump.status === 'processing'}
+            onClick={() => setDeleteTarget({ dump_id: dump.dump_id, file_name: dump.file_name })}
             title="Delete dump"
             className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -126,7 +157,7 @@ export default function AdminDashboard() {
         )
       }
     },
-  ], [deleting])
+  ], [deleting, downloading])
 
   const table = useReactTable({ data: filtered, columns, getCoreRowModel: getCoreRowModel() })
 

@@ -15,11 +15,30 @@ import concurrent.futures
 import logging
 import math
 import os
+import struct
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# ── Project-local writable symbol cache ───────────────────────────────────────
+# Prepended to volatility3.symbols.__path__ so downloaded ISF files land here
+# rather than inside the venv, keeping the project self-contained.
+_LOCAL_SYMBOLS_DIR = Path(__file__).resolve().parent.parent / 'models' / 'symbols'
+
+
+class SymbolsUnavailableError(RuntimeError):
+    """
+    Raised when Volatility 3 cannot find or download a symbol table for the
+    given memory dump.  Carries the kernel PDB name and GUID so callers can
+    display a helpful message and retry instructions.
+    """
+    def __init__(self, message: str, pdb_name: str = '', guid: str = ''):
+        super().__init__(message)
+        self.pdb_name = pdb_name
+        self.guid     = guid
 
 # ── Windows memory protection strings that indicate write+execute ─────────────
 _RWX_PROTECTIONS = frozenset({
@@ -102,6 +121,17 @@ def _risk_score(
 # Volatility 3 value normaliser
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _sanitize(obj):
+    """
+    Recursively convert a feature dict to plain Python types so it can be
+    pickled and stored as JSONB.  Volatility objects (String, Integer, etc.)
+    are not picklable; a JSON round-trip with default=str flushes them all out
+    in one pass regardless of nesting depth.
+    """
+    import json
+    return json.loads(json.dumps(obj, default=str))
+
+
 def _safe(val: Any) -> Any:
     """
     Convert every Volatility 3 result type to a plain JSON-serialisable value.
@@ -136,7 +166,15 @@ def _safe(val: Any) -> Any:
         return hex(int(val))
     if isinstance(val, datetime):
         return val.isoformat()
-    return val
+    # Pass through plain Python scalars unchanged.
+    if isinstance(val, (int, float, str, bool, bytes, type(None))):
+        return val
+    # Any remaining Volatility object (String, Integer, etc.) — coerce to str.
+    # These types define __getnewargs_ex__ that fails during pickling.
+    try:
+        return str(val)
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -167,11 +205,20 @@ class FeatureExtractor:
         try:
             import volatility3.framework as vf
             import volatility3.plugins as vp
+            from volatility3 import symbols as _vol_syms
             from volatility3.framework import automagic, contexts
         except ImportError as exc:
             raise RuntimeError(
                 "volatility3 is not installed. Run: pip install volatility3"
             ) from exc
+
+        # Register project-local symbol dir as first search/write location.
+        # This lets Volatility auto-download PDB ISF files into the project
+        # tree rather than the venv, and persists across reinstalls.
+        _LOCAL_SYMBOLS_DIR.mkdir(parents=True, exist_ok=True)
+        local_str = str(_LOCAL_SYMBOLS_DIR)
+        if local_str not in _vol_syms.__path__:
+            _vol_syms.__path__.insert(0, local_str)
 
         # Import all built-in plugins so automagic can satisfy requirements.
         vf.import_files(vp, ignore_errors=True)
@@ -185,11 +232,120 @@ class FeatureExtractor:
     # Seconds each plugin may run before being skipped with partial results.
     PLUGIN_TIMEOUT = 180
 
+    # ── Symbol availability helpers ───────────────────────────────────────────
+
+    @staticmethod
+    def _probe_pdb_guid(dump_path: str) -> tuple[str, str]:
+        """
+        Scan the first 256 MB of a dump file for a Windows kernel RSDS PDB
+        record.  Returns (guid_str, pdb_name) on success or ('', '') on failure.
+
+        Uses 4 MB overlapping chunks so the file is never read into memory all
+        at once, and gives up after 256 MB — the kernel always lives in low
+        physical memory.
+        """
+        _KERNEL_NAMES = {
+            b'ntkrnlmp.pdb', b'ntkrpamp.pdb',
+            b'ntoskrnl.pdb', b'ntkrnlpa.pdb',
+        }
+        _RSDS    = b'RSDS'
+        _CHUNK   = 1 << 22   # 4 MB per read
+        _MAX     = 1 << 30   # stop after 1 GB — Win11 kernel can sit past 500 MB
+        _OVERLAP = 64        # bytes kept between chunks to catch cross-boundary hits
+
+        try:
+            with open(dump_path, 'rb') as fh:
+                scanned  = 0
+                prev_tail: bytes = b''
+                while scanned < _MAX:
+                    raw = fh.read(_CHUNK)
+                    if not raw:
+                        break
+                    chunk = prev_tail + raw
+                    pos   = 0
+                    while True:
+                        idx = chunk.find(_RSDS, pos)
+                        if idx == -1:
+                            break
+                        if idx + 24 >= len(chunk):
+                            break
+                        try:
+                            g    = chunk[idx + 4  : idx + 20]
+                            age  = struct.unpack('<I', chunk[idx + 20 : idx + 24])[0]
+                            nend = chunk.find(b'\x00', idx + 24)
+                            if nend == -1 or nend - (idx + 24) > 64:
+                                pos = idx + 1
+                                continue
+                            pdb_b = chunk[idx + 24 : nend]
+                            if pdb_b in _KERNEL_NAMES:
+                                d1, d2, d3 = struct.unpack('<IHH', g[:8])
+                                d4   = g[8:16]
+                                guid = (
+                                    f'{d1:08X}{d2:04X}{d3:04X}'
+                                    + ''.join(f'{b:02X}' for b in d4)
+                                )
+                                return guid, pdb_b.decode('ascii')
+                        except Exception:
+                            pass
+                        pos = idx + 1
+                    prev_tail = chunk[-_OVERLAP:]
+                    scanned  += len(raw)
+        except Exception:
+            pass
+        return '', ''
+
+    @staticmethod
+    def has_valid_symbols(dump_path: str) -> tuple[bool, str, str]:
+        """
+        Check whether a Volatility 3 symbol table (ISF file) is already present
+        for the dump's kernel build.
+
+        Returns:
+            (has_symbols, guid, pdb_name)
+            • has_symbols – True if a matching .json[.xz] file was found on disk.
+            • guid        – Windows PDB GUID extracted from the dump ('' if unreadable).
+            • pdb_name    – Kernel PDB filename, e.g. 'ntkrnlmp.pdb' ('' if unreadable).
+
+        This does NOT attempt to download missing symbols; use download_symbols.py
+        or let Volatility's auto-download handle it during the first plugin run.
+        """
+        # Ensure local symbol dir is in the search path before checking
+        try:
+            from volatility3 import symbols as _vol_syms
+            local_str = str(_LOCAL_SYMBOLS_DIR)
+            if local_str not in _vol_syms.__path__:
+                _vol_syms.__path__.insert(0, local_str)
+        except ImportError:
+            pass
+
+        guid, pdb_name = FeatureExtractor._probe_pdb_guid(dump_path)
+        if not guid:
+            return False, '', ''
+
+        try:
+            from volatility3.framework.symbols.intermed import IntermediateSymbolTable
+            # Volatility GUID-age filenames use age 1 or 2 most often; try both.
+            for age in range(1, 4):
+                filter_str = os.path.join(pdb_name, f'{guid}-{age}')
+                for _ in IntermediateSymbolTable.file_symbol_url('windows', filter_str):
+                    return True, guid, pdb_name
+        except Exception:
+            pass
+
+        return False, guid, pdb_name
+
+    # ── Plugin runner ─────────────────────────────────────────────────────────
+
     def _run_plugin(self, plugin_class) -> list[dict]:
         """
         Construct and run one plugin against the shared context.
         Returns a list of row dicts with normalised Python values.
         Times out after PLUGIN_TIMEOUT seconds so a slow plugin cannot stall the pipeline.
+
+        Note: thread-based timeout — the thread itself cannot be force-killed,
+        so shutdown(wait=True) may overshoot by up to PLUGIN_TIMEOUT.  The hard
+        wall-clock cap is enforced at the process level in _analysis_worker,
+        which kills the entire extraction subprocess when the outer limit fires.
         """
         from volatility3.framework import plugins as fp
 
@@ -224,7 +380,39 @@ class FeatureExtractor:
             logger.warning("Plugin timed out — %s", msg)
             return []
         except Exception as exc:
-            msg = f"{plugin_class.__name__}: {type(exc).__name__}: {exc}"
+            # Distinguish symbol-table failures from genuine plugin errors.
+            # Symbol failures should surface immediately so the caller can
+            # report a clear "missing symbols" error rather than returning
+            # empty data that causes a meaningless all-zero classification.
+            exc_name = type(exc).__name__
+            exc_str  = str(exc).lower()
+            _SYMBOL_EXC = {
+                'UnsatisfiedException', 'SymbolError',
+                'SymbolSpaceError', 'RequirementException',
+            }
+            is_symbol_err = (
+                exc_name in _SYMBOL_EXC
+                or 'symbol' in exc_str
+                or 'unsatisfied' in exc_str
+                or 'requirement' in exc_str
+            )
+            if is_symbol_err:
+                guid, pdb_name = FeatureExtractor._probe_pdb_guid(self._dump_path)
+                detail = f" (PDB: {pdb_name}, GUID: {guid})" if guid else ""
+                logger.error(
+                    "Symbol table unavailable for %s%s — %s: %s",
+                    self._dump_path, detail, exc_name, exc,
+                )
+                raise SymbolsUnavailableError(
+                    f"Windows symbol table not found for this memory dump{detail}. "
+                    f"Run download_symbols.py to install the community symbol pack, "
+                    f"or ensure network access for auto-download from Microsoft's "
+                    f"symbol server (msdl.microsoft.com).",
+                    pdb_name=pdb_name,
+                    guid=guid,
+                )
+
+            msg = f"{plugin_class.__name__}: {exc_name}: {exc}"
             self.errors.append(msg)
             logger.warning("Plugin run failed — %s", msg)
             return []
@@ -613,7 +801,7 @@ class FeatureExtractor:
             summary["dll_count"], summary["rwx_regions"], summary["total_handles"],
         )
 
-        return {
+        return _sanitize({
             "dump_path":              self._dump_path,
             "extraction_timestamp":   datetime.now(timezone.utc).isoformat(),
             "process_features":       proc,
@@ -624,7 +812,7 @@ class FeatureExtractor:
             "service_features":       svc,
             "summary":                summary,
             "errors":                 self.errors,
-        }
+        })
 
     # ── Full pipeline ─────────────────────────────────────────────────────────
 
@@ -672,7 +860,7 @@ class FeatureExtractor:
             summary["nservices"], summary["risk_score"],
         )
 
-        return {
+        return _sanitize({
             "dump_path":               self._dump_path,
             "extraction_timestamp":    datetime.now(timezone.utc).isoformat(),
             "process_features":        proc,
@@ -683,7 +871,7 @@ class FeatureExtractor:
             "service_features":        svc,
             "summary":                 summary,
             "errors":                  self.errors,
-        }
+        })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
