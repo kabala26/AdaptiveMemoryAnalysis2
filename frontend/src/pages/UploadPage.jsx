@@ -1,19 +1,16 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileUp, CheckCircle2, Loader2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import api from '../utils/api.js'
 import { useToast } from '../hooks/useToast.jsx'
 
-const ALLOWED = ['.raw', '.mem', '.dmp', '.vmem', '.csv']
-const MAX_BYTES = 8 * 1024 * 1024 * 1024
 const STAGES = ['uploading', 'validating', 'queued', 'processing', 'completed']
 
-function validate(file) {
-  const ext = '.' + file.name.split('.').pop().toLowerCase()
-  if (!ALLOWED.includes(ext)) return `Unsupported type "${ext}". Allowed: ${ALLOWED.join(', ')}`
-  if (file.size > MAX_BYTES) return 'File exceeds the 8 GB limit.'
-  return null
+const DEFAULT_CONFIG = {
+  allowed_extensions: ['.raw', '.mem', '.dmp', '.vmem', '.csv'],
+  max_upload_bytes:   8 * 1024 * 1024 * 1024,
+  max_upload_gb:      8,
 }
 
 export default function UploadPage() {
@@ -24,6 +21,22 @@ export default function UploadPage() {
   const [file,     setFile]     = useState(null)
   const [stage,    setStage]    = useState(null)
   const [progress, setProgress] = useState(0)
+  const [config,   setConfig]   = useState(DEFAULT_CONFIG)
+
+  useEffect(() => {
+    api.get('/analysis/config')
+      .then(r => setConfig(r.data))
+      .catch(() => {})
+  }, [])
+
+  const validate = useCallback((f) => {
+    const ext = '.' + f.name.split('.').pop().toLowerCase()
+    if (!config.allowed_extensions.includes(ext))
+      return `Unsupported type "${ext}". Allowed: ${config.allowed_extensions.join(', ')}`
+    if (f.size > config.max_upload_bytes)
+      return `File exceeds the ${config.max_upload_gb} GB limit.`
+    return null
+  }, [config])
 
   const upload = useCallback(async (f) => {
     const err = validate(f)
@@ -47,9 +60,11 @@ export default function UploadPage() {
       await api.post('/analysis/analyze', { dump_id: dumpId })
       setStage('processing')
 
+      let networkErrors = 0
       const poll = setInterval(async () => {
         try {
           const { data: res } = await api.get(`/analysis/results/${dumpId}`)
+          networkErrors = 0
           if (res.status === 'complete') {
             clearInterval(poll)
             setStage('completed')
@@ -64,15 +79,24 @@ export default function UploadPage() {
             setStage(null)
             navigate(`/results/${dumpId}`)
           }
-        } catch (_) {}
+        } catch (_) {
+          networkErrors += 1
+          if (networkErrors >= 3) {
+            clearInterval(poll)
+            setStage(null)
+            toast.error('Server connection lost. The analysis may have failed — check your reports.')
+          }
+        }
       }, 3000)
     } catch (e) {
       setStage(null)
       toast.error(e.response?.data?.message || 'Upload failed. Please try again.')
     }
-  }, [navigate, toast])
+  }, [navigate, toast, validate])
 
-  const stageIdx = STAGES.indexOf(stage)
+  const stageIdx  = STAGES.indexOf(stage)
+  const acceptStr = config.allowed_extensions.join(',')
+  const hintStr   = config.allowed_extensions.join(' · ') + ` — max ${config.max_upload_gb} GB`
 
   return (
     <Layout>
@@ -95,14 +119,14 @@ export default function UploadPage() {
                 : 'border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:border-blue-400 dark:hover:border-blue-500'
             }`}
           >
-            <input ref={inputRef} type="file" className="hidden" accept=".raw,.mem,.dmp,.vmem,.csv" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />
+            <input ref={inputRef} type="file" className="hidden" accept={acceptStr} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} />
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                 <FileUp className="w-8 h-8 text-gray-400" />
               </div>
               <div>
                 <p className="font-medium text-gray-700 dark:text-gray-200">Drop memory dump here or click to browse</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Accepts .raw · .mem · .dmp · .vmem · .csv — max 8 GB</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Accepts {hintStr}</p>
               </div>
             </div>
           </div>
@@ -117,7 +141,6 @@ export default function UploadPage() {
               <span className="ml-auto text-xs text-gray-400 font-mono">{(file?.size / 1024 / 1024).toFixed(1)} MB</span>
             </div>
 
-            {/* Upload bar */}
             {stage === 'uploading' && (
               <div className="mb-6">
                 <div className="flex justify-between text-xs text-gray-500 mb-1.5">
@@ -130,7 +153,6 @@ export default function UploadPage() {
               </div>
             )}
 
-            {/* Stage list */}
             <div className="space-y-3">
               {STAGES.map((s, i) => {
                 const done   = i < stageIdx
@@ -158,7 +180,7 @@ export default function UploadPage() {
             {stage === 'processing' && (
               <p className="mt-4 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
                 <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
-                Running Volatility forensic plugins — this takes <strong className="text-gray-500 dark:text-gray-400">3–10 minutes</strong> for a typical memory dump. Please keep this tab open.
+                Running Volatility forensic plugins — this may take several minutes for large dumps. Please keep this tab open.
               </p>
             )}
 

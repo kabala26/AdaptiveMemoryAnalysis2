@@ -57,24 +57,41 @@ def _progress(block_num: int, block_size: int, total: int) -> None:
     sys.stdout.flush()
 
 
+def _count_all_symbols() -> tuple[int, str]:
+    """Count .json.xz files across ALL Volatility symbol search paths."""
+    try:
+        from volatility3 import symbols as _vol_syms
+        for p in _vol_syms.__path__:
+            win = Path(p) / "windows"
+            if win.exists():
+                files = list(win.rglob("*.json.xz"))
+                if files:
+                    return len(files), str(win)
+    except ImportError:
+        pass
+    return 0, ""
+
+
 def main() -> None:
     print("Volatility 3 Windows symbol pack installer")
     print("=" * 50)
+
+    # Check across ALL symbol search paths — not just the target dir.
+    # The pack may already be installed in the venv.
+    total_existing, existing_path = _count_all_symbols()
+    if total_existing > 0:
+        print(f"Symbol pack already installed: {total_existing} files found at:")
+        print(f"  {existing_path}")
+        ans = input("Re-download anyway? [y/N] ").strip().lower()
+        if ans != "y":
+            print("Nothing to do.")
+            return
+        print()
 
     target_dir = _get_target_dir()
     print(f"Target directory : {target_dir}")
     print(f"Download URL     : {SYMBOLS_URL}")
     print()
-
-    # Check existing symbols
-    existing = list((target_dir / "windows").rglob("*.json.xz")) if (target_dir / "windows").exists() else []
-    if existing:
-        print(f"Found {len(existing)} existing symbol file(s) in {target_dir / 'windows'}")
-        ans = input("Re-download and overwrite? [y/N] ").strip().lower()
-        if ans != "y":
-            print("Aborted.")
-            return
-        print()
 
     # Download to a temp file
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="vol3-symbols-")

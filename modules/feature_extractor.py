@@ -212,9 +212,20 @@ class FeatureExtractor:
                 "volatility3 is not installed. Run: pip install volatility3"
             ) from exc
 
+        # Volatility's identifier.cache opens a SQLite connection in the main
+        # thread then uses it from ThreadPoolExecutor threads, causing
+        # "SQLite objects created in a thread can only be used in that same
+        # thread" errors that break the automagic symbol-table scanner.
+        # Patch sqlite3.connect to always use check_same_thread=False so the
+        # connection is safely shared across threads within this subprocess.
+        import sqlite3 as _sqlite3
+        _orig_connect = _sqlite3.connect
+        def _connect_patched(*a, **kw):
+            kw['check_same_thread'] = False
+            return _orig_connect(*a, **kw)
+        _sqlite3.connect = _connect_patched
+
         # Register project-local symbol dir as first search/write location.
-        # This lets Volatility auto-download PDB ISF files into the project
-        # tree rather than the venv, and persists across reinstalls.
         _LOCAL_SYMBOLS_DIR.mkdir(parents=True, exist_ok=True)
         local_str = str(_LOCAL_SYMBOLS_DIR)
         if local_str not in _vol_syms.__path__:
@@ -230,7 +241,7 @@ class FeatureExtractor:
         self._automagics = automagic.available(self._ctx)
 
     # Seconds each plugin may run before being skipped with partial results.
-    PLUGIN_TIMEOUT = 180
+    from modules.config import PLUGIN_TIMEOUT_SECONDS as PLUGIN_TIMEOUT
 
     # ── Symbol availability helpers ───────────────────────────────────────────
 

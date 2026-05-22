@@ -90,7 +90,7 @@ def _upsert_oauth_user(provider: str, profile: dict) -> User:
                 user.profile_picture = profile['profile_picture']
 
     if user is None:
-        # Brand-new user
+        # Brand-new user — first ever registration becomes admin
         user = User(
             email             = profile['email'],
             name              = profile['name'],
@@ -98,10 +98,17 @@ def _upsert_oauth_user(provider: str, profile: dict) -> User:
             oauth_provider    = provider,
             oauth_provider_id = profile['provider_id'],
         )
+        _assign_role_for_new_user(user)
         db.session.add(user)
 
     db.session.flush()  # assign id before commit
     return user
+
+
+def _assign_role_for_new_user(user: User) -> None:
+    """First user ever registered becomes admin; all subsequent users are forensic_analyst."""
+    existing = User.query.count()
+    user.role = 'admin' if existing == 0 else 'forensic_analyst'
 
 
 def _error(message: str, status: int = 400):
@@ -253,6 +260,7 @@ def register():
         oauth_provider = 'email',
     )
     user.set_password(password)
+    _assign_role_for_new_user(user)
     db.session.add(user)
     db.session.commit()
 

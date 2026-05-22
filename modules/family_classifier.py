@@ -46,7 +46,12 @@ MODELS_DIR    = _PROJECT_ROOT / "models"
 CATEGORY_MODEL_PATH = MODELS_DIR / "category_classifier.joblib"
 FAMILY_MODEL_PATH   = MODELS_DIR / "family_classifier.joblib"
 
-RANDOM_STATE = 42
+from modules.config import (
+    SEC_N_ESTIMATORS, SEC_MAX_DEPTH, SEC_MIN_SAMPLES_LEAF,
+    SEC_RANDOM_STATE as RANDOM_STATE,
+    TRAIN_RATIO_SEC,
+    CATEGORY_TOP_N, FAMILY_TOP_N,
+)
 _NON_FEATURE_COLS = {"Category", "Class"}
 
 
@@ -100,12 +105,13 @@ def train_category_model(
     )
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=RANDOM_STATE, stratify=y,
+        X, y, test_size=(1.0 - TRAIN_RATIO_SEC), random_state=RANDOM_STATE, stratify=y,
     )
 
     clf = RandomForestClassifier(
-        n_estimators=100, class_weight="balanced",
-        random_state=RANDOM_STATE, n_jobs=-1,
+        n_estimators=SEC_N_ESTIMATORS, max_depth=SEC_MAX_DEPTH,
+        min_samples_leaf=SEC_MIN_SAMPLES_LEAF,
+        class_weight="balanced", random_state=RANDOM_STATE, n_jobs=-1,
     )
     clf.fit(X_train, y_train)
 
@@ -139,12 +145,13 @@ def train_family_model(
     )
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=RANDOM_STATE, stratify=y,
+        X, y, test_size=(1.0 - TRAIN_RATIO_SEC), random_state=RANDOM_STATE, stratify=y,
     )
 
     clf = RandomForestClassifier(
-        n_estimators=100, class_weight="balanced",
-        random_state=RANDOM_STATE, n_jobs=-1,
+        n_estimators=SEC_N_ESTIMATORS, max_depth=SEC_MAX_DEPTH,
+        min_samples_leaf=SEC_MIN_SAMPLES_LEAF,
+        class_weight="balanced", random_state=RANDOM_STATE, n_jobs=-1,
     )
     clf.fit(X_train, y_train)
 
@@ -178,7 +185,7 @@ def train_secondary_models(
     }
 
 
-def predict_family(vec: np.ndarray, top_n: int = 5) -> dict | None:
+def predict_family(vec: np.ndarray, top_n: int = FAMILY_TOP_N) -> dict | None:
     """
     Run Stage 2 classification on a (1, 55) feature vector.
 
@@ -236,12 +243,30 @@ def predict_family(vec: np.ndarray, top_n: int = 5) -> dict | None:
             if p > 0.01
         ]
 
-        # ── Family rankings ───────────────────────────────────────────────────
+        # ── Family rankings — filtered to predicted category ──────────────────
+        # The category and family classifiers are trained independently and can
+        # contradict each other (e.g. category=Ransomware, family=Transponder
+        # which is actually Spyware). Filter family rankings to only include
+        # families that belong to the predicted category so results are coherent.
+        _CATEGORY_FAMILIES = {
+            'Ransomware': {'Ako', 'Conti', 'Maze', 'Pysa', 'Shade'},
+            'Spyware':    {'180solutions', 'CWS', 'Gator', 'TIBS', 'Transponder'},
+            'Trojan':     {'Emotet', 'Reconyc', 'Refroso', 'Scar', 'Zeus'},
+        }
+        allowed_families = _CATEGORY_FAMILIES.get(cat_label, set())
+
         fam_proba = fam_clf.predict_proba(vec)[0]
-        fam_ranked = sorted(
+        fam_all = sorted(
             zip(fam_le.classes_, fam_proba.tolist()),
             key=lambda t: t[1], reverse=True,
         )
+
+        # Only keep families consistent with the predicted category
+        fam_ranked = [(f, p) for f, p in fam_all if f in allowed_families]
+        if not fam_ranked:
+            # Fallback: use all families if none match (shouldn't happen)
+            fam_ranked = fam_all
+
         fam_label = fam_ranked[0][0]
         fam_conf  = float(fam_ranked[0][1])
         family_rankings = [

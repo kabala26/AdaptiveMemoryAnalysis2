@@ -183,9 +183,9 @@ export default function AdminDashboard() {
             <StatCard label="Total Analyses" value={stats?.total_analyses}   icon={FileSearch} />
             <StatCard label="Malware Today"  value={stats?.malware_today}    icon={AlertTriangle} accent="text-red-500" iconBg="bg-red-100 dark:bg-red-900/20" />
             <StatCard label="Detection Rate" value={stats ? `${(stats.detection_rate * 100).toFixed(1)}%` : '—'} icon={Activity} />
-            <StatCard label="Disk Usage"     value={stats ? `${stats.disk_usage_mb} MB` : '—'} icon={HardDrive} />
-            <StatCard label="Model Accuracy" value={stats?.last_model_accuracy ? `${(stats.last_model_accuracy * 100).toFixed(1)}%` : '—'} icon={Cpu} />
-            <StatCard label="Last Trained"   value={stats?.last_model_date ? new Date(stats.last_model_date).toLocaleDateString() : 'Never'} icon={Users} sub="Model training date" />
+            <StatCard label="Disk Usage"        value={stats ? `${stats.disk_usage_mb} MB` : '—'} icon={HardDrive} />
+            <StatCard label="Avg Confidence"    value={stats?.avg_confidence != null ? `${(stats.avg_confidence * 100).toFixed(1)}%` : '—'} icon={Cpu} sub={stats?.confidence_count ? `across ${stats.confidence_count} real analyses` : 'no analyses yet'} />
+            <StatCard label="Last Trained"      value={stats?.last_model_date ? new Date(stats.last_model_date).toLocaleDateString() : 'Never'} icon={Users} sub="Model training date" />
           </div>
         )}
 

@@ -38,7 +38,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.preprocessing import LabelEncoder
 
 logging.basicConfig(
@@ -56,8 +56,12 @@ MODELS_DIR    = _PROJECT_ROOT / "models"
 # ── Columns that are not features ────────────────────────────────────────────
 _NON_FEATURE_COLS = {"Category", "Class"}
 
-# ── Reproducibility ───────────────────────────────────────────────────────────
-RANDOM_STATE = 42
+# ── All tunable constants from central config ─────────────────────────────────
+from modules.config import (
+    TRAIN_RATIO, VAL_RATIO, CV_N_SPLITS,
+    RF_N_ESTIMATORS, RF_MAX_DEPTH, RF_MIN_SAMPLES_LEAF,
+    RF_MAX_FEATURES, RF_CLASS_WEIGHT, RF_RANDOM_STATE as RANDOM_STATE,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +86,11 @@ def load_data(csv_path: Path | str = DATASET_PATH) -> tuple[np.ndarray, np.ndarr
     logger.info("Loading dataset from %s", csv_path)
     df = pd.read_csv(csv_path)
 
+    before = len(df)
+    df = df.drop_duplicates()
+    if len(df) < before:
+        logger.info("Removed %d duplicate rows (%d → %d)", before - len(df), before, len(df))
+
     feature_cols = [c for c in df.columns if c not in _NON_FEATURE_COLS]
     X = df[feature_cols].values.astype(np.float64)
 
@@ -103,8 +112,8 @@ def load_data(csv_path: Path | str = DATASET_PATH) -> tuple[np.ndarray, np.ndarr
 def split_data(
     X: np.ndarray,
     y: np.ndarray,
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
+    train_ratio: float = TRAIN_RATIO,
+    val_ratio: float   = VAL_RATIO,
 ) -> tuple[np.ndarray, ...]:
     """
     Stratified 70 / 15 / 15 split.
@@ -113,9 +122,7 @@ def split_data(
     -------
     X_train, X_val, X_test, y_train, y_val, y_test
     """
-    test_ratio = 1.0 - train_ratio - val_ratio
-    if abs(test_ratio - val_ratio) > 1e-9:
-        raise ValueError("val_ratio and test_ratio must be equal for a symmetric split")
+    test_ratio = round(1.0 - train_ratio - val_ratio, 10)
 
     # First cut: train vs (val + test)
     X_train, X_temp, y_train, y_temp = train_test_split(
@@ -134,7 +141,7 @@ def split_data(
     )
 
     logger.info(
-        "Split  →  train: %d  |  val: %d  |  test: %d",
+        "Split  →  train: %d (70%%)  |  val: %d (15%%)  |  test: %d (15%%)",
         len(y_train), len(y_val), len(y_test),
     )
     return X_train, X_val, X_test, y_train, y_val, y_test
@@ -148,14 +155,29 @@ def train_model(
     X_train: np.ndarray,
     y_train: np.ndarray,
 ) -> RandomForestClassifier:
-    """Train a Random Forest with the required hyper-parameters."""
+    """
+    Train a Random Forest with mild regularisation.
+
+    max_depth=20 and min_samples_leaf=2 prevent the trees from memorising
+    dataset-specific noise, improving generalisation to out-of-distribution
+    real-world memory dumps without meaningfully hurting CICMEM accuracy.
+    """
     model = RandomForestClassifier(
-        n_estimators=100,
-        class_weight="balanced",
+        n_estimators=RF_N_ESTIMATORS,
+        max_depth=RF_MAX_DEPTH,
+        min_samples_leaf=RF_MIN_SAMPLES_LEAF,
+        max_features=RF_MAX_FEATURES,
+        class_weight=RF_CLASS_WEIGHT,
         random_state=RANDOM_STATE,
         n_jobs=-1,
     )
-    logger.info("Training RandomForestClassifier(n_estimators=100, class_weight='balanced') ...")
+    logger.info(
+        "Training RandomForestClassifier("
+        "n_estimators=%d, max_depth=%s, min_samples_leaf=%d, "
+        "max_features=%s, class_weight=%s)",
+        RF_N_ESTIMATORS, RF_MAX_DEPTH, RF_MIN_SAMPLES_LEAF,
+        RF_MAX_FEATURES, RF_CLASS_WEIGHT,
+    )
     t0 = time.perf_counter()
     model.fit(X_train, y_train)
     elapsed = time.perf_counter() - t0
@@ -223,6 +245,41 @@ def evaluate(
 # ─────────────────────────────────────────────────────────────────────────────
 # Feature importance
 # ─────────────────────────────────────────────────────────────────────────────
+
+def cross_validate_model(
+    model: RandomForestClassifier,
+    X: np.ndarray,
+    y: np.ndarray,
+    n_splits: int = 5,
+) -> dict:
+    """
+    Run stratified k-fold cross-validation and return mean ± std accuracy.
+    More statistically reliable than a single train/test split.
+    """
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
+    scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy', n_jobs=-1)
+
+    mean_acc = float(scores.mean())
+    std_acc  = float(scores.std())
+
+    print(f"\n{'═'*52}")
+    print(f"  {n_splits}-FOLD CROSS-VALIDATION")
+    print(f"{'═'*52}")
+    print(f"  Mean accuracy : {mean_acc:.4f}  ({mean_acc*100:.2f} %)")
+    print(f"  Std deviation : {std_acc:.4f}")
+    print(f"  Fold scores   : {[round(s, 4) for s in scores.tolist()]}")
+    print(f"{'═'*52}")
+
+    logger.info(
+        "CV (%d-fold): %.4f ± %.4f", n_splits, mean_acc, std_acc
+    )
+    return {
+        'cv_folds':        n_splits,
+        'cv_mean_accuracy': round(mean_acc, 6),
+        'cv_std_accuracy':  round(std_acc, 6),
+        'cv_fold_scores':   [round(float(s), 6) for s in scores],
+    }
+
 
 def get_feature_importance(
     model: RandomForestClassifier,
@@ -337,6 +394,10 @@ def train_and_evaluate(
 
     val_metrics  = evaluate(model, X_val,  y_val,  "Validation")
     test_metrics = evaluate(model, X_test, y_test, "Test")
+    cv_metrics   = cross_validate_model(model, X, y)
+
+    # Merge CV metrics into test_metrics so they're stored in metadata
+    test_metrics.update(cv_metrics)
 
     feature_importance = get_feature_importance(model, feature_names)
 

@@ -53,6 +53,7 @@ def create_app():
     # ── DB init ───────────────────────────────────────────────────
     with app.app_context():
         db.create_all()
+        _mark_stale_processing_failed(app)
 
     # ── APScheduler — weekly adaptive retraining ──────────────────
     # Only start in the main process; the Werkzeug debug reloader spawns a
@@ -60,6 +61,28 @@ def create_app():
     _start_scheduler(app)
 
     return app
+
+
+def _mark_stale_processing_failed(app: Flask) -> None:
+    """Mark any dumps stuck in 'processing' as 'failed' on startup.
+
+    If the server was killed mid-analysis the subprocess is gone but the DB
+    row never got updated. Leaving it as 'processing' makes the frontend poll
+    forever. Mark them failed so the UI shows the correct state immediately.
+    """
+    try:
+        from .models.analysis import MemoryDump
+        stale = MemoryDump.query.filter_by(status='processing').all()
+        if stale:
+            for dump in stale:
+                dump.status = 'failed'
+            db.session.commit()
+            app.logger.warning(
+                'Marked %d stale processing dump(s) as failed on startup.',
+                len(stale),
+            )
+    except Exception as exc:
+        app.logger.error('Could not clean up stale processing dumps: %s', exc)
 
 
 def _start_scheduler(app: Flask) -> None:

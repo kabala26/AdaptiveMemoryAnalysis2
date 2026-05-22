@@ -441,20 +441,6 @@ export default function ResultPage() {
           </div>
         )}
 
-        {/* Suspicious artifacts */}
-        {result.suspicious_artifacts?.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Suspicious Artifacts</h3>
-            <ul className="space-y-2">
-              {result.suspicious_artifacts.map((a, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700 dark:text-gray-300">
-                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                  {typeof a === 'string' ? a : JSON.stringify(a)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         <Link to="/upload" className="inline-flex items-center text-sm text-blue-600 dark:text-blue-400 hover:underline">
           ← Upload another memory dump

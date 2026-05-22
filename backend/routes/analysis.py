@@ -40,10 +40,11 @@ from ..utils.roles import ADMIN, ANALYST, require_role
 
 analysis_bp = Blueprint('analysis', __name__)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-
-_ALLOWED_EXTENSIONS = {'.raw', '.mem', '.dmp', '.vmem', '.csv'}
-_MAX_UPLOAD_BYTES   = 8 * 1024 * 1024 * 1024   # 8 GB
+# ── Constants (all sourced from central config) ───────────────────────────────
+from modules.config import (
+    ALLOWED_EXTENSIONS       as _ALLOWED_EXTENSIONS,
+    MAX_UPLOAD_BYTES         as _MAX_UPLOAD_BYTES,
+)
 
 _retrain_lock = threading.Lock()
 
@@ -91,9 +92,12 @@ def _audit(action: str, resource_type: str = None, resource_id: str = None, deta
 
 # ── Background workers ────────────────────────────────────────────────────────
 
-_ANALYSIS_TIMEOUT_SECONDS = 1800  # 30 minutes hard cap (large dumps need time)
-_FAST_TIMEOUT_SECONDS    = 900   # 15 minutes cap for fast-plugin phase
-_BENIGN_THRESHOLD        = 0.80  # skip slow plugins when Benign confidence ≥ this
+from modules.config import (
+    FAST_TIMEOUT_SECONDS         as _FAST_TIMEOUT_SECONDS,
+    ANALYSIS_TIMEOUT_SECONDS     as _ANALYSIS_TIMEOUT_SECONDS,
+    BENIGN_EARLY_EXIT_THRESHOLD  as _BENIGN_THRESHOLD,
+    FAMILY_TOP_N                 as _FAMILY_TOP_N,
+)
 
 
 # ── CSV batch helper ──────────────────────────────────────────────────────────
@@ -496,6 +500,20 @@ def _retrain_worker(app):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  GET /config  — upload constraints for the frontend
+# ══════════════════════════════════════════════════════════════════════════════
+
+@analysis_bp.get('/config')
+@require_role(ADMIN, ANALYST)
+def upload_config():
+    return jsonify({
+        'allowed_extensions': sorted(_ALLOWED_EXTENSIONS),
+        'max_upload_bytes':   _MAX_UPLOAD_BYTES,
+        'max_upload_gb':      round(_MAX_UPLOAD_BYTES / (1024 ** 3), 1),
+    }), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  POST /upload
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -687,7 +705,7 @@ def get_results(dump_id: str):
             vec = np.array(
                 [f['value'] for f in dump_feature_values], dtype=np.float64
             ).reshape(1, -1)
-            fr = predict_family(vec, top_n=15)
+            fr = predict_family(vec, top_n=_FAMILY_TOP_N)
             if fr:
                 category_rankings = fr.get('category_rankings')
                 family_rankings   = fr.get('family_rankings')
@@ -818,8 +836,28 @@ def stats():
         .count()
     )
 
-    total_results = AnalysisResult.query.count()
-    malware_total = AnalysisResult.query.filter_by(prediction='Malware').count()
+    # Detection rate: count only unique filenames to avoid test-upload skew.
+    # Multiple uploads of the same file (retries, dev testing) are deduplicated
+    # by taking the latest result per unique file_name.
+    from sqlalchemy import func as _func
+    latest_per_file = (
+        db.session.query(
+            _func.max(AnalysisResult.classification_date).label('latest'),
+            MemoryDump.file_name,
+        )
+        .join(MemoryDump, MemoryDump.dump_id == AnalysisResult.dump_id)
+        .group_by(MemoryDump.file_name)
+        .subquery()
+    )
+    unique_results = (
+        db.session.query(AnalysisResult.prediction)
+        .join(MemoryDump, MemoryDump.dump_id == AnalysisResult.dump_id)
+        .join(latest_per_file, (latest_per_file.c.file_name == MemoryDump.file_name) &
+              (latest_per_file.c.latest == AnalysisResult.classification_date))
+        .all()
+    )
+    total_results  = len(unique_results)
+    malware_total  = sum(1 for r in unique_results if r.prediction == 'Malware')
     detection_rate = (malware_total / total_results) if total_results else 0.0
 
     last_model = _latest_model()
@@ -828,13 +866,23 @@ def stats():
     disk_bytes = sum(f.stat().st_size for f in upload_dir.rglob('*') if f.is_file()) \
         if upload_dir.exists() else 0
 
+    # Average real-world confidence across all completed analyses
+    from sqlalchemy import func as _func2
+    avg_conf_row = db.session.query(
+        _func2.avg(AnalysisResult.confidence),
+        _func2.count(AnalysisResult.confidence),
+    ).first()
+    avg_confidence   = float(avg_conf_row[0]) if avg_conf_row[0] is not None else None
+    confidence_count = int(avg_conf_row[1]) if avg_conf_row[1] else 0
+
     return jsonify({
-        'total_analyses':   total,
-        'malware_today':    malware_today,
-        'detection_rate':   round(detection_rate, 4),
-        'disk_usage_mb':    round(disk_bytes / (1024 * 1024), 1),
-        'last_model_date':  last_model.training_date.isoformat() if last_model else None,
-        'last_model_accuracy': last_model.accuracy if last_model else None,
+        'total_analyses':    total,
+        'malware_today':     malware_today,
+        'detection_rate':    round(detection_rate, 4),
+        'disk_usage_mb':     round(disk_bytes / (1024 * 1024), 1),
+        'last_model_date':   last_model.training_date.isoformat() if last_model else None,
+        'avg_confidence':    round(avg_confidence, 4) if avg_confidence is not None else None,
+        'confidence_count':  confidence_count,
     }), 200
 
 

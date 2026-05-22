@@ -379,7 +379,6 @@ Six tables are created automatically by SQLAlchemy on startup.
 | source | VARCHAR(64) | `manual` / `confirmed_prediction` |
 | added_by | FK → users | |
 | included_in_model_id | FK → ml_models | NULL = pending retrain |
-
 ### `audit_logs`
 | Column | Type | Notes |
 |---|---|---|
