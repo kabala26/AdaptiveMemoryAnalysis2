@@ -57,7 +57,7 @@ export default function RegisterForm() {
 
       {/* Name */}
       <div>
-        <label htmlFor="reg-name" className="block text-xs font-medium text-ink-600 mb-1.5 font-mono tracking-wide uppercase">
+        <label htmlFor="reg-name" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5 font-mono tracking-wide uppercase">
           Full Name
         </label>
         <input
@@ -78,7 +78,7 @@ export default function RegisterForm() {
 
       {/* Email */}
       <div>
-        <label htmlFor="reg-email" className="block text-xs font-medium text-ink-600 mb-1.5 font-mono tracking-wide uppercase">
+        <label htmlFor="reg-email" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5 font-mono tracking-wide uppercase">
           Email
         </label>
         <input
@@ -99,7 +99,7 @@ export default function RegisterForm() {
 
       {/* Password with strength indicator */}
       <div>
-        <label htmlFor="reg-password" className="block text-xs font-medium text-ink-600 mb-1.5 font-mono tracking-wide uppercase">
+        <label htmlFor="reg-password" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5 font-mono tracking-wide uppercase">
           Password
         </label>
         <div className="relative">
@@ -117,7 +117,7 @@ export default function RegisterForm() {
           <button
             type="button"
             onClick={() => setShowPw(s => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
             aria-label={showPw ? 'Hide password' : 'Show password'}
           >
             {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -133,7 +133,7 @@ export default function RegisterForm() {
             {PW_RULES.map(rule => {
               const pass = rule.test(values.password)
               return (
-                <li key={rule.label} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${pass ? 'text-green-600' : 'text-ink-400'}`}>
+                <li key={rule.label} className={`flex items-center gap-1 text-[10px] font-mono transition-colors ${pass ? 'text-green-600' : 'text-gray-400'}`}>
                   <CheckCircle2 className={`w-3 h-3 flex-shrink-0 transition-opacity ${pass ? 'opacity-100' : 'opacity-30'}`} />
                   {rule.label}
                 </li>

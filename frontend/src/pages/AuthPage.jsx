@@ -55,7 +55,7 @@ export default function AuthPage() {
           {/* Top accent line */}
           <div className="h-[2px] w-full bg-gradient-to-r from-primary-400 via-primary-500 to-gray-900 dark:from-primary-400 dark:via-primary-500 dark:to-gray-100" />
 
-          <div className="p-8">
+          <div className="p-6 sm:p-8">
             <div className="space-y-3">
               <OAuthButton
                 provider="google"

@@ -46,18 +46,18 @@ export default function OAuthCallback() {
 
   if (error) {
     return (
-      <div className="min-h-dvh flex items-center justify-center px-4">
+      <div className="min-h-dvh flex items-center justify-center px-4 bg-[#F1F5F9] dark:bg-gray-900">
         <div className="text-center max-w-sm">
-          <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center mx-auto mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-6 h-6 text-red-500" />
           </div>
-          <h2 className="font-display text-xl text-ink-900 mb-2">
+          <h2 className="font-display text-xl text-gray-900 dark:text-white mb-2">
             Authentication failed
           </h2>
-          <p className="text-sm text-ink-500 mb-6">{error}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{error}</p>
           <button
             onClick={() => navigate("/auth", { replace: true })}
-            className="btn-primary max-w-[200px] mx-auto"
+            className="px-5 py-2.5 rounded-xl bg-navy-700 hover:bg-navy-600 text-white text-sm font-medium transition-colors"
           >
             Back to sign in
           </button>
@@ -68,22 +68,22 @@ export default function OAuthCallback() {
 
   return (
     <div
-      className="min-h-dvh flex flex-col items-center justify-center px-4"
+      className="min-h-dvh flex flex-col items-center justify-center px-4 bg-[#F1F5F9] dark:bg-gray-900"
       aria-live="polite"
       aria-label="Completing sign in"
     >
       <div className="flex flex-col items-center gap-5">
         <div className="relative">
-          <div className="w-14 h-14 rounded-2xl bg-ink-950 flex items-center justify-center">
-            <Shield className="w-7 h-7 text-cream" strokeWidth={1.5} />
+          <div className="w-14 h-14 rounded-2xl bg-gray-900 dark:bg-gray-100 flex items-center justify-center shadow-md">
+            <Shield className="w-7 h-7 text-white dark:text-gray-900" strokeWidth={1.5} />
           </div>
-          <div className="absolute inset-0 rounded-2xl border-2 border-ember-400 animate-ping opacity-40" />
+          <div className="absolute inset-0 rounded-2xl border-2 border-gray-400 animate-ping opacity-40" />
         </div>
         <div className="text-center">
-          <p className="font-display text-lg text-ink-900">
+          <p className="font-display text-lg text-gray-900 dark:text-white">
             Completing sign in…
           </p>
-          <p className="text-sm text-ink-400 mt-1 font-light">
+          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1 font-light">
             Hang tight, securing your session
           </p>
         </div>
@@ -92,7 +92,7 @@ export default function OAuthCallback() {
           {[0, 1, 2].map((i) => (
             <div
               key={i}
-              className="w-2 h-2 rounded-full bg-ink-300 animate-bounce"
+              className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 animate-bounce"
               style={{ animationDelay: `${i * 150}ms` }}
             />
           ))}

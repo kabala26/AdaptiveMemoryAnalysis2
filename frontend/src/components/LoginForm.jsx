@@ -50,7 +50,7 @@ export default function LoginForm() {
 
       {/* Email */}
       <div>
-        <label htmlFor="login-email" className="block text-xs font-medium text-ink-600 mb-1.5 font-mono tracking-wide uppercase">
+        <label htmlFor="login-email" className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1.5 font-mono tracking-wide uppercase">
           Email
         </label>
         <input
@@ -76,7 +76,7 @@ export default function LoginForm() {
       {/* Password */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label htmlFor="login-password" className="block text-xs font-medium text-ink-600 font-mono tracking-wide uppercase">
+          <label htmlFor="login-password" className="block text-xs font-medium text-gray-600 dark:text-gray-300 font-mono tracking-wide uppercase">
             Password
           </label>
 
@@ -97,7 +97,7 @@ export default function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPw(s => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
             aria-label={showPw ? 'Hide password' : 'Show password'}
           >
             {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

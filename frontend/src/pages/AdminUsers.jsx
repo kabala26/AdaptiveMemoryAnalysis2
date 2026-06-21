@@ -7,7 +7,7 @@ import api from '../utils/api.js'
 
 function RoleBadge({ role }) {
   return role === 'admin'
-    ? <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 uppercase">Admin</span>
+    ? <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded bg-navy-100 text-navy-700 dark:bg-navy-800/60 dark:text-navy-200 uppercase">Admin</span>
     : <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 uppercase">Analyst</span>
 }
 
@@ -62,7 +62,7 @@ export default function AdminUsers() {
     <Layout>
       <div className="space-y-6 max-w-5xl">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">User Management</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">User Management</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Manage roles and account status</p>
         </div>
 
@@ -76,7 +76,7 @@ export default function AdminUsers() {
           ].map(s => (
             <div key={s.label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 text-center shadow-sm">
               <p className="text-[10px] text-gray-400 uppercase tracking-widest">{s.label}</p>
-              <p className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">{loading ? '—' : s.value}</p>
+              <p className="text-2xl font-bold font-mono text-navy-700 dark:text-navy-300 mt-1">{loading ? '—' : s.value}</p>
             </div>
           ))}
         </div>
@@ -96,53 +96,56 @@ export default function AdminUsers() {
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {users.map(u => (
-                <div key={u.id} className="flex items-center gap-4 px-6 py-4 hover:bg-amber-50/30 dark:hover:bg-amber-900/10 transition-colors">
-                  {/* Avatar */}
-                  <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-sm font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
-                    {u.name.charAt(0).toUpperCase()}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{u.name}</p>
-                      {!u.is_active && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-100 text-red-500 dark:bg-red-900/20">Inactive</span>}
+                <div key={u.id} className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-4 sm:px-6 py-4 hover:bg-navy-50/30 dark:hover:bg-navy-900/10 transition-colors">
+                  <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-sm font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
+                      {u.name.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-xs text-gray-400 mt-0.5 truncate">{u.email}</p>
-                    <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-0.5">
-                      {u.last_login_at ? `Last login: ${new Date(u.last_login_at).toLocaleDateString()}` : 'Never logged in'}
-                    </p>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{u.name}</p>
+                        {!u.is_active && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-100 text-red-500 dark:bg-red-900/20 flex-shrink-0">Inactive</span>}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">{u.email}</p>
+                      <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-0.5">
+                        {u.last_login_at ? `Last login: ${new Date(u.last_login_at).toLocaleDateString()}` : 'Never logged in'}
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Role badge */}
-                  <RoleBadge role={u.role} />
+                  {/* Role badge + actions */}
+                  <div className="flex items-center gap-2 flex-wrap pl-[52px] sm:pl-0">
+                    <RoleBadge role={u.role} />
 
-                  {/* Role selector */}
-                  <select
-                    value={u.role}
-                    disabled={u.id === me?.id || saving === u.id}
-                    onChange={e => handleRoleChange(u.id, e.target.value)}
-                    className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  >
-                    <option value="forensic_analyst">Forensic Analyst</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                    <select
+                      value={u.role}
+                      disabled={u.id === me?.id || saving === u.id}
+                      onChange={e => handleRoleChange(u.id, e.target.value)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-navy-400"
+                    >
+                      <option value="forensic_analyst">Forensic Analyst</option>
+                      <option value="admin">Admin</option>
+                    </select>
 
-                  {saving === u.id && <Loader2 className="w-4 h-4 text-gray-400 animate-spin flex-shrink-0" />}
+                    {saving === u.id && <Loader2 className="w-4 h-4 text-gray-400 animate-spin flex-shrink-0" />}
 
-                  {/* Activate / Deactivate */}
-                  <button
-                    disabled={u.id === me?.id || saving === u.id}
-                    onClick={() => handleDeactivate(u.id, u.is_active)}
-                    title={u.is_active ? 'Deactivate account' : 'Reactivate account'}
-                    className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 ${
-                      u.is_active
-                        ? 'text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500'
-                        : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-600'
-                    }`}
-                  >
-                    {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                  </button>
+                    {/* Activate / Deactivate */}
+                    <button
+                      disabled={u.id === me?.id || saving === u.id}
+                      onClick={() => handleDeactivate(u.id, u.is_active)}
+                      title={u.is_active ? 'Deactivate account' : 'Reactivate account'}
+                      className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0 ${
+                        u.is_active
+                          ? 'text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500'
+                          : 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-600'
+                      }`}
+                    >
+                      {u.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

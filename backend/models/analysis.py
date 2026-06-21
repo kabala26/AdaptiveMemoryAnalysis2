@@ -171,6 +171,51 @@ class LabeledSample(db.Model):
         }
 
 
+class AdditionalDataset(db.Model):
+    """
+    Admin-uploaded CSV datasets that supplement CICMalMem-2022 during retraining.
+
+    Datasets are always kept separate from CICMalMem — loaded alongside it,
+    never merged into it.  The CICMEM test split remains the neutral evaluation
+    ground so accuracy comparisons are unbiased.
+    """
+    __tablename__ = 'additional_datasets'
+
+    dataset_id        = db.Column(db.String(36), primary_key=True,
+                                  default=lambda: str(uuid.uuid4()))
+    file_name         = db.Column(db.String(255), nullable=False)
+    file_path         = db.Column(db.Text,        nullable=False)
+    uploaded_at       = db.Column(db.DateTime(timezone=True),
+                                  default=lambda: datetime.now(timezone.utc),
+                                  nullable=False)
+    uploaded_by       = db.Column(db.String(36),
+                                  db.ForeignKey('users.id', ondelete='SET NULL'),
+                                  nullable=True)
+    # pending_review | approved | rejected
+    status            = db.Column(db.String(32), default='pending_review', nullable=False)
+    # whether included in the next retrain run
+    is_active         = db.Column(db.Boolean, default=False, nullable=False)
+    sample_count      = db.Column(db.Integer, nullable=True)
+    benign_count      = db.Column(db.Integer, nullable=True)
+    malware_count     = db.Column(db.Integer, nullable=True)
+    # validation + KS-test comparison report stored as JSON
+    comparison_report = db.Column(db.JSON, nullable=True)
+
+    def to_dict(self):
+        return {
+            'dataset_id':        self.dataset_id,
+            'file_name':         self.file_name,
+            'uploaded_at':       self.uploaded_at.isoformat(),
+            'uploaded_by':       self.uploaded_by,
+            'status':            self.status,
+            'is_active':         self.is_active,
+            'sample_count':      self.sample_count,
+            'benign_count':      self.benign_count,
+            'malware_count':     self.malware_count,
+            'comparison_report': self.comparison_report,
+        }
+
+
 class AuditLog(db.Model):
     __tablename__ = 'audit_logs'
 

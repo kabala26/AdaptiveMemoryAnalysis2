@@ -53,7 +53,7 @@ function FeatureBar({ feature, importance, max, value }) {
   const pct = max > 0 ? (importance / max) * 100 : 0
   return (
     <div className="flex items-center gap-3 group">
-      <span className="text-xs font-mono text-gray-500 dark:text-gray-400 w-40 flex-shrink-0 truncate" title={feature}>{feature}</span>
+      <span className="text-xs font-mono text-gray-500 dark:text-gray-400 w-24 sm:w-40 flex-shrink-0 truncate" title={feature}>{feature}</span>
       <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
         <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
       </div>
@@ -224,12 +224,11 @@ export default function ResultPage() {
           </div>
 
           {/* Overview stat tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {[
               { label: 'Total Samples',  value: bs.total.toLocaleString(),         color: 'text-gray-900 dark:text-white' },
               { label: 'Benign',          value: bs.benign_count.toLocaleString(),  color: 'text-green-600 dark:text-green-400' },
               { label: 'Malware',         value: bs.malware_count.toLocaleString(), color: 'text-red-600 dark:text-red-400' },
-              { label: 'Detection Rate',  value: `${bs.malware_pct}%`,              color: bs.malware_pct > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{label}</p>
@@ -333,20 +332,20 @@ export default function ResultPage() {
       <div className="max-w-3xl mx-auto space-y-5">
 
         {/* Verdict banner */}
-        <div className={`rounded-2xl border-2 p-8 ${
+        <div className={`rounded-2xl border-2 p-5 sm:p-8 ${
           isMalicious ? 'border-red-400 bg-red-50 dark:bg-red-900/10'
                       : 'border-green-400 bg-green-50 dark:bg-green-900/10'
         }`}>
-          <div className="flex flex-wrap items-center justify-between gap-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
             <div className="flex items-center gap-4">
               {isMalicious
-                ? <AlertTriangle className="w-14 h-14 text-red-500 flex-shrink-0" />
-                : <CheckCircle2  className="w-14 h-14 text-green-500 flex-shrink-0" />}
+                ? <AlertTriangle className="w-10 h-10 sm:w-14 sm:h-14 text-red-500 flex-shrink-0" />
+                : <CheckCircle2  className="w-10 h-10 sm:w-14 sm:h-14 text-green-500 flex-shrink-0" />}
               <div>
-                <p className={`text-4xl font-bold font-display ${isMalicious ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                <p className={`text-2xl sm:text-4xl font-bold font-display ${isMalicious ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
                   {isMalicious ? 'MALICIOUS' : 'BENIGN'}
                 </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{result.file_name}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 break-all">{result.file_name}</p>
                 {isMalicious && result.malware_category && (
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
                     <CategoryBadge category={result.malware_category} />
@@ -359,7 +358,11 @@ export default function ResultPage() {
                 )}
               </div>
             </div>
-            {result.confidence != null && <ConfidenceGauge value={result.confidence} />}
+            {result.confidence != null && (
+              <div className="flex justify-center sm:justify-end">
+                <ConfidenceGauge value={result.confidence} />
+              </div>
+            )}
           </div>
         </div>
 

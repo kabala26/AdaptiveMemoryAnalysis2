@@ -18,7 +18,7 @@ function Toggle({ on, onToggle }) {
   return (
     <button onClick={onToggle} className="flex-shrink-0">
       {on
-        ? <ToggleRight className="w-8 h-8 text-amber-500" />
+        ? <ToggleRight className="w-8 h-8 text-navy-700" />
         : <ToggleLeft  className="w-8 h-8 text-gray-400" />}
     </button>
   )
@@ -57,7 +57,7 @@ export default function AdminConfig() {
     <Layout>
       <div className="space-y-6 max-w-2xl">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">System Configuration</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">System Configuration</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Adjust analysis and system settings</p>
         </div>
 
@@ -71,13 +71,13 @@ export default function AdminConfig() {
           <div>
             <div className="flex justify-between mb-2">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Confidence Threshold</label>
-              <span className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400">{cfg.confidenceThreshold}%</span>
+              <span className="text-sm font-mono font-bold text-navy-700 dark:text-navy-300">{cfg.confidenceThreshold}%</span>
             </div>
             <input
               type="range" min="50" max="99" step="1"
               value={cfg.confidenceThreshold}
               onChange={e => set('confidenceThreshold', Number(e.target.value))}
-              className="w-full accent-amber-500 cursor-pointer"
+              className="w-full accent-navy-700 cursor-pointer"
             />
             <div className="flex justify-between text-[10px] text-gray-400 mt-1">
               <span>50% (sensitive)</span><span>99% (strict)</span>
@@ -156,7 +156,7 @@ export default function AdminConfig() {
         {/* Save */}
         <button
           onClick={handleSave}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium transition-colors"
+          className="flex items-center gap-2 px-6 py-3 rounded-xl bg-navy-700 hover:bg-navy-600 text-white text-sm font-medium transition-colors"
         >
           {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
           {saved ? 'Saved!' : 'Save Configuration'}
