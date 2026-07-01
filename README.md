@@ -459,7 +459,33 @@ All endpoints are prefixed with `/api`. Protected endpoints require a `Bearer <a
   "batch_summary": null
 }
 ```
+<!-- env -->
+<!-- # ─── Flask ───────────────────────────────────────────────────────────────────
+SECRET_KEY=b2ac33c824a5126c85d094626f5d3f0d988fab33a8936c18caf72350ef2ffdad
+FLASK_ENV=development
+FLASK_DEBUG=1
 
+# ─── Database ────────────────────────────────────────────────────────────────
+DATABASE_URL=postgresql://postgres.lgimzgnoaegczorgnepy:Starreal8430%40@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require
+
+# ─── JWT ─────────────────────────────────────────────────────────────────────
+JWT_SECRET_KEY=eb0840e7b3909316fa066ff66799b707819dab521a88ca338e0530bb7d38a719
+JWT_ACCESS_EXPIRES_SECONDS=900      # 15 minutes
+JWT_REFRESH_EXPIRES_SECONDS=604800  # 7 days
+
+# ─── Google OAuth ────────────────────────────────────────────────────────────
+
+GOOGLE_CLIENT_ID="YOUR_GOOGLE_CLIENT_ID"
+GOOGLE_CLIENT_SECRET="YOUR_GOOGLE_CLIENT_SECRET"
+
+# ─── GitHub OAuth ────────────────────────────────────────────────────────────
+
+GITHUB_CLIENT_ID="YOUR_GITHUB_CLIENT_ID"
+GITHUB_CLIENT_SECRET="YOUR_GITHUB_CLIENT_SECRET"
+
+# ─── URLs ────────────────────────────────────────────────────────────────────
+FRONTEND_URL=http://localhost:3000
+BACKEND_URL=http://localhost:5000 -->
 ---
 
 ## 10. Frontend Pages
