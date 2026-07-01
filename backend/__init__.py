@@ -20,6 +20,13 @@ def create_app():
     app.config['SECRET_KEY']        = os.environ['SECRET_KEY']
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Supabase's pgbouncer pooler silently drops idle/long-lived connections.
+    # pool_pre_ping validates a connection before reuse instead of failing mid-request;
+    # pool_recycle proactively replaces connections before the pooler's own timeout hits.
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'pool_recycle':  280,
+    }
 
     # Upload
     app.config['UPLOAD_FOLDER']      = os.getenv('UPLOAD_FOLDER', str(Path(__file__).parent.parent / 'uploads'))

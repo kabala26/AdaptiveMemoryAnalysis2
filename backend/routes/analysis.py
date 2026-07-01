@@ -44,6 +44,9 @@ analysis_bp = Blueprint('analysis', __name__)
 from modules.config import (
     ALLOWED_EXTENSIONS       as _ALLOWED_EXTENSIONS,
     MAX_UPLOAD_BYTES         as _MAX_UPLOAD_BYTES,
+    PSEUDO_LABEL_THRESHOLD   as _PSEUDO_LABEL_THRESHOLD,
+    DRIFT_WINDOW             as _DRIFT_WINDOW,
+    DRIFT_P_VALUE            as _DRIFT_P_VALUE,
 )
 
 _retrain_lock = threading.Lock()
@@ -458,6 +461,32 @@ def _analysis_worker(app, dump_id: str, file_path: str):
                     db.session.add(result)
                     dump.status = 'complete'
                     db.session.commit()
+
+                    # ── Pseudo-label: auto-save high-confidence predictions ─────
+                    # If the model is sufficiently certain (≥ PSEUDO_LABEL_THRESHOLD),
+                    # treat the prediction as ground truth and queue it for the next
+                    # adaptive retrain cycle. No human involvement required.
+                    if confidence >= _PSEUDO_LABEL_THRESHOLD:
+                        try:
+                            fv = map_to_feature_vector(extracted).tolist()
+                            pseudo = LabeledSample(
+                                dump_id        = dump_id,
+                                feature_vector = fv,
+                                true_label     = prediction,
+                                source         = 'pseudo_label',
+                                added_by       = None,
+                            )
+                            db.session.add(pseudo)
+                            db.session.commit()
+                            current_app.logger.info(
+                                'Pseudo-labeled dump %s → %s (conf %.2f)',
+                                dump_id, prediction, confidence,
+                            )
+                        except Exception as exc:
+                            db.session.rollback()
+                            current_app.logger.warning(
+                                'Pseudo-labeling failed for dump %s: %s', dump_id, exc,
+                            )
 
             # Delete raw file — features are in the DB now
             try:
@@ -887,6 +916,64 @@ def stats():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  GET /drift  — confidence drift detection
+# ══════════════════════════════════════════════════════════════════════════════
+
+@analysis_bp.get('/drift')
+@require_role(ADMIN)
+def confidence_drift():
+    """
+    Compare the confidence distribution of recent predictions against the
+    historical baseline using a two-sample KS-test.
+
+    Returns a drift_detected flag plus the statistics so the dashboard can
+    show trend information.
+    """
+    try:
+        from scipy import stats as _stats
+    except ImportError:
+        return _error('scipy is not installed; drift detection unavailable.', 503)
+
+    rows = (
+        AnalysisResult.query
+        .order_by(AnalysisResult.classification_date.asc())
+        .with_entities(AnalysisResult.confidence, AnalysisResult.classification_date)
+        .all()
+    )
+
+    scores = [r.confidence for r in rows]
+    n      = len(scores)
+
+    if n < _DRIFT_WINDOW * 2:
+        return jsonify({
+            'status':        'insufficient_data',
+            'total':         n,
+            'min_required':  _DRIFT_WINDOW * 2,
+            'drift_detected': False,
+        }), 200
+
+    baseline = scores[:_DRIFT_WINDOW]
+    recent   = scores[-_DRIFT_WINDOW:]
+
+    ks_stat, p_value = _stats.ks_2samp(baseline, recent)
+    drift_detected   = bool(p_value < _DRIFT_P_VALUE)
+
+    return jsonify({
+        'status':          'ok',
+        'drift_detected':  drift_detected,
+        'ks_statistic':    round(float(ks_stat),  4),
+        'p_value':         round(float(p_value),  4),
+        'baseline_mean':   round(sum(baseline) / len(baseline), 4),
+        'recent_mean':     round(sum(recent)   / len(recent),   4),
+        'baseline_n':      len(baseline),
+        'recent_n':        len(recent),
+        'total':           n,
+        'window':          _DRIFT_WINDOW,
+        'threshold':       _DRIFT_P_VALUE,
+    }), 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  GET /models  — list all trained model versions
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1120,3 +1207,232 @@ def add_labeled_sample():
         'message':   'Labeled sample saved.',
         'sample_id': sample.sample_id,
     }), 201
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Additional Dataset management
+# ══════════════════════════════════════════════════════════════════════════════
+
+from ..models.analysis import AdditionalDataset as _AdditionalDataset
+
+_DATASETS_DIR = Path(__file__).resolve().parent.parent.parent / 'datasets' / 'additional'
+
+
+def _validate_and_compare(csv_path: Path) -> dict:
+    """
+    Validate an uploaded CSV against the CICMalMem-2022 schema and compare
+    feature distributions using a KS-test.
+
+    Returns a report dict with keys:
+      errors, warnings, class_distribution, overlap, feature_comparison
+    """
+    import pandas as pd
+    from scipy import stats as _stats
+    from modules.classifier import DATASET_PATH, load_data
+
+    report = {'errors': [], 'warnings': [], 'class_distribution': {},
+              'overlap': {}, 'feature_comparison': {}}
+
+    try:
+        df_new = pd.read_csv(csv_path)
+    except Exception as exc:
+        report['errors'].append(f'Cannot read CSV: {exc}')
+        return report
+
+    # ── Schema checks ─────────────────────────────────────────────────────────
+    if 'Class' not in df_new.columns:
+        report['errors'].append("Missing required column: 'Class'")
+        return report
+
+    X_base, _, feature_names = load_data(DATASET_PATH)
+    missing = [c for c in feature_names if c not in df_new.columns]
+    if missing:
+        report['errors'].append(
+            f"{len(missing)} required feature column(s) missing: {missing[:5]}{'…' if len(missing)>5 else ''}"
+        )
+        return report
+
+    invalid_labels = df_new[~df_new['Class'].isin(['Benign', 'Malware'])]['Class'].unique().tolist()
+    if invalid_labels:
+        report['errors'].append(f"Invalid Class values: {invalid_labels[:5]}")
+        return report
+
+    # ── Quality warnings ──────────────────────────────────────────────────────
+    n_rows = len(df_new)
+    if n_rows < 100:
+        report['warnings'].append(f"Only {n_rows} samples — too small to be meaningful (recommend ≥ 100).")
+
+    null_counts = df_new[feature_names].isnull().sum()
+    cols_with_nulls = null_counts[null_counts > 0]
+    if not cols_with_nulls.empty:
+        report['warnings'].append(
+            f"{len(cols_with_nulls)} feature column(s) have null values."
+        )
+
+    n_benign  = int((df_new['Class'] == 'Benign').sum())
+    n_malware = int((df_new['Class'] == 'Malware').sum())
+    majority_pct = max(n_benign, n_malware) / n_rows * 100 if n_rows else 0
+    if majority_pct > 90:
+        report['warnings'].append(
+            f"Severe class imbalance: {majority_pct:.1f}% majority class."
+        )
+
+    report['class_distribution'] = {
+        'total':        n_rows,
+        'benign':       n_benign,
+        'malware':      n_malware,
+        'benign_pct':   round(n_benign  / n_rows * 100, 1) if n_rows else 0,
+        'malware_pct':  round(n_malware / n_rows * 100, 1) if n_rows else 0,
+    }
+
+    # ── Duplicate / overlap detection ─────────────────────────────────────────
+    df_base = pd.read_csv(DATASET_PATH)
+    df_base_feats = df_base[feature_names].dropna()
+    df_new_feats  = df_new[feature_names].dropna()
+
+    merged    = pd.merge(df_new_feats, df_base_feats, how='inner')
+    n_overlap = len(merged)
+    report['overlap'] = {
+        'exact_duplicates': n_overlap,
+        'duplicate_pct':    round(n_overlap / n_rows * 100, 1) if n_rows else 0,
+    }
+    if n_overlap > 0:
+        report['warnings'].append(
+            f"{n_overlap} row(s) ({report['overlap']['duplicate_pct']}%) are exact duplicates of CICMalMem rows and will be deduplicated at merge time."
+        )
+
+    # ── Feature distribution comparison (KS-test) ─────────────────────────────
+    drifted = []
+    stable  = []
+    for feat in feature_names:
+        base_col = df_base_feats[feat].values
+        new_col  = df_new_feats[feat].values if feat in df_new_feats.columns else None
+        if new_col is None or len(new_col) == 0:
+            continue
+        ks, p = _stats.ks_2samp(base_col, new_col)
+        entry = {'feature': feat, 'ks_stat': round(float(ks), 4), 'p_value': round(float(p), 4)}
+        (drifted if p < 0.05 else stable).append(entry)
+
+    n_total   = len(drifted) + len(stable)
+    sim_score = round(len(stable) / n_total, 3) if n_total else 1.0
+    report['feature_comparison'] = {
+        'total_features':       n_total,
+        'similar_features':     len(stable),
+        'drifted_features':     len(drifted),
+        'similarity_score':     sim_score,
+        'top_drifted':          sorted(drifted, key=lambda x: x['ks_stat'], reverse=True)[:10],
+    }
+    if len(drifted) > n_total * 0.5:
+        report['warnings'].append(
+            f"{len(drifted)}/{n_total} features differ significantly from CICMalMem — "
+            "this dataset may represent novel threat patterns (good) or a different collection methodology (verify)."
+        )
+
+    return report
+
+
+@analysis_bp.post('/datasets/upload')
+@require_role(ADMIN)
+def upload_dataset():
+    """Upload a new CSV dataset for admin review before retraining."""
+    if 'file' not in request.files:
+        return _error('No file uploaded.')
+    f = request.files['file']
+    if not f.filename.endswith('.csv'):
+        return _error('Only CSV files are accepted.')
+
+    _DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+    import uuid as _uuid
+    safe_name = f"{_uuid.uuid4().hex}_{Path(f.filename).name}"
+    dest      = _DATASETS_DIR / safe_name
+    f.save(str(dest))
+
+    try:
+        report = _validate_and_compare(dest)
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        return _error(f'Validation failed: {exc}', 500)
+
+    if report['errors']:
+        dest.unlink(missing_ok=True)
+        return jsonify({'valid': False, 'errors': report['errors']}), 422
+
+    cd  = report['class_distribution']
+    ds  = _AdditionalDataset(
+        file_name         = f.filename,
+        file_path         = str(dest),
+        uploaded_by       = get_jwt_identity(),
+        sample_count      = cd.get('total'),
+        benign_count      = cd.get('benign'),
+        malware_count     = cd.get('malware'),
+        comparison_report = report,
+    )
+    db.session.add(ds)
+    _audit('upload_dataset', 'additional_dataset', ds.dataset_id,
+           {'file_name': f.filename, 'samples': cd.get('total')})
+    db.session.commit()
+
+    return jsonify({'dataset': ds.to_dict(), 'valid': True}), 201
+
+
+@analysis_bp.get('/datasets')
+@require_role(ADMIN)
+def list_datasets():
+    datasets = _AdditionalDataset.query.order_by(_AdditionalDataset.uploaded_at.desc()).all()
+    return jsonify({'datasets': [d.to_dict() for d in datasets]}), 200
+
+
+@analysis_bp.post('/datasets/<dataset_id>/approve')
+@require_role(ADMIN)
+def approve_dataset(dataset_id):
+    ds = db.session.get(_AdditionalDataset, dataset_id)
+    if not ds:
+        return _error('Dataset not found.', 404)
+    ds.status    = 'approved'
+    ds.is_active = True
+    _audit('approve_dataset', 'additional_dataset', dataset_id)
+    db.session.commit()
+    return jsonify({'dataset': ds.to_dict()}), 200
+
+
+@analysis_bp.post('/datasets/<dataset_id>/reject')
+@require_role(ADMIN)
+def reject_dataset(dataset_id):
+    ds = db.session.get(_AdditionalDataset, dataset_id)
+    if not ds:
+        return _error('Dataset not found.', 404)
+    ds.status    = 'rejected'
+    ds.is_active = False
+    _audit('reject_dataset', 'additional_dataset', dataset_id)
+    db.session.commit()
+    return jsonify({'dataset': ds.to_dict()}), 200
+
+
+@analysis_bp.post('/datasets/<dataset_id>/toggle')
+@require_role(ADMIN)
+def toggle_dataset(dataset_id):
+    ds = db.session.get(_AdditionalDataset, dataset_id)
+    if not ds:
+        return _error('Dataset not found.', 404)
+    if ds.status != 'approved':
+        return _error('Only approved datasets can be toggled.')
+    ds.is_active = not ds.is_active
+    _audit('toggle_dataset', 'additional_dataset', dataset_id, {'is_active': ds.is_active})
+    db.session.commit()
+    return jsonify({'dataset': ds.to_dict()}), 200
+
+
+@analysis_bp.delete('/datasets/<dataset_id>')
+@require_role(ADMIN)
+def delete_dataset(dataset_id):
+    ds = db.session.get(_AdditionalDataset, dataset_id)
+    if not ds:
+        return _error('Dataset not found.', 404)
+    try:
+        Path(ds.file_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    _audit('delete_dataset', 'additional_dataset', dataset_id, {'file_name': ds.file_name})
+    db.session.delete(ds)
+    db.session.commit()
+    return jsonify({'message': 'Dataset deleted.'}), 200

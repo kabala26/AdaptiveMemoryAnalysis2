@@ -45,3 +45,13 @@ VAL_RATIO   = float(os.getenv('VAL_RATIO',   0.15))
 # TEST_RATIO  = 1 - TRAIN_RATIO - VAL_RATIO  (computed at runtime)
 
 CV_N_SPLITS = int(os.getenv('CV_N_SPLITS', 5))
+
+# ── Adaptive learning ─────────────────────────────────────────────────────────
+# Minimum confidence for a prediction to be auto-saved as a pseudo-label.
+PSEUDO_LABEL_THRESHOLD = float(os.getenv('PSEUDO_LABEL_THRESHOLD', 0.85))
+
+# Rolling window size (n predictions) used for each side of the KS-test.
+DRIFT_WINDOW = int(os.getenv('DRIFT_WINDOW', 30))
+
+# p-value threshold below which confidence drift is flagged.
+DRIFT_P_VALUE = float(os.getenv('DRIFT_P_VALUE', 0.05))

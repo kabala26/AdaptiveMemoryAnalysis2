@@ -44,7 +44,7 @@ function AddSampleForm({ onAdded }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium transition-colors"
+        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-700 hover:bg-navy-600 text-white text-sm font-medium transition-colors"
       >
         <Plus className="w-4 h-4" /> Add Label
       </button>
@@ -80,7 +80,7 @@ function AddSampleForm({ onAdded }) {
         <button
           type="submit"
           disabled={submitting}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-sm font-medium transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-700 hover:bg-navy-600 disabled:opacity-60 text-white text-sm font-medium transition-colors"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Save
@@ -128,7 +128,7 @@ export default function AdminLabeledSamples() {
       <div className="space-y-6 max-w-5xl">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Labeled Samples</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Labeled Samples</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Ground-truth labels used for adaptive retraining</p>
           </div>
           <div className="flex gap-2">
@@ -148,7 +148,7 @@ export default function AdminLabeledSamples() {
             { label: 'Pending',       value: pending,  icon: Clock,        accent: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/20' },
             { label: 'Malware',       value: malwareCount, icon: Tag,      accent: 'text-red-500',   bg: 'bg-red-100 dark:bg-red-900/20' },
             { label: 'Benign',        value: benignCount,  icon: CheckCircle2, accent: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/20' },
-          ].map(({ label, value, icon: Icon, accent = 'text-amber-600 dark:text-amber-400', bg = 'bg-amber-100 dark:bg-amber-900/20' }) => (
+          ].map(({ label, value, icon: Icon, accent = 'text-navy-700 dark:text-navy-300', bg = 'bg-navy-100 dark:bg-navy-800/40' }) => (
             <div key={label} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
               <div className={`w-8 h-8 rounded-xl ${bg} flex items-center justify-center mb-3`}>
                 <Icon className={`w-4 h-4 ${accent}`} />
@@ -221,7 +221,7 @@ export default function AdminLabeledSamples() {
                       </td>
                       <td className="px-5 py-3.5">
                         {s.dump_id
-                          ? <a href={`/results/${s.dump_id}`} className="text-[10px] font-mono text-amber-600 dark:text-amber-400 hover:underline truncate block max-w-[140px]">{s.dump_id}</a>
+                          ? <a href={`/results/${s.dump_id}`} className="text-[10px] font-mono text-navy-700 dark:text-navy-300 hover:underline truncate block max-w-[140px]">{s.dump_id}</a>
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>

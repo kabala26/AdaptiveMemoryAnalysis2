@@ -14,7 +14,7 @@
   }
 
   body {
-    background-color: #f7f4ef;
+    background-color: #F1F5F9;
     color: #1c1712;
     @apply font-body;
     min-height: 100dvh;

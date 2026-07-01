@@ -113,7 +113,7 @@ export default function UploadPage() {
             onDragLeave={() => setDrag(false)}
             onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) upload(f) }}
             onClick={() => inputRef.current?.click()}
-            className={`rounded-2xl p-16 border-2 transition-all duration-200 cursor-pointer text-center ${
+            className={`rounded-2xl p-8 sm:p-16 border-2 transition-all duration-200 cursor-pointer text-center ${
               drag
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/10'
                 : 'border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:border-blue-400 dark:hover:border-blue-500'

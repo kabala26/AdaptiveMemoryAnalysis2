@@ -1,0 +1,166 @@
+{
+  "model_type": "RandomForestClassifier",
+  "saved_at": "2026-06-03T09:16:34.886895+00:00",
+  "hyperparameters": {
+    "n_estimators": 200,
+    "class_weight": "balanced",
+    "random_state": 42
+  },
+  "n_features": 55,
+  "feature_names": [
+    "pslist.nproc",
+    "pslist.nppid",
+    "pslist.avg_threads",
+    "pslist.nprocs64bit",
+    "pslist.avg_handlers",
+    "dlllist.ndlls",
+    "dlllist.avg_dlls_per_proc",
+    "handles.nhandles",
+    "handles.avg_handles_per_proc",
+    "handles.nport",
+    "handles.nfile",
+    "handles.nevent",
+    "handles.ndesktop",
+    "handles.nkey",
+    "handles.nthread",
+    "handles.ndirectory",
+    "handles.nsemaphore",
+    "handles.ntimer",
+    "handles.nsection",
+    "handles.nmutant",
+    "ldrmodules.not_in_load",
+    "ldrmodules.not_in_init",
+    "ldrmodules.not_in_mem",
+    "ldrmodules.not_in_load_avg",
+    "ldrmodules.not_in_init_avg",
+    "ldrmodules.not_in_mem_avg",
+    "malfind.ninjections",
+    "malfind.commitCharge",
+    "malfind.protection",
+    "malfind.uniqueInjections",
+    "psxview.not_in_pslist",
+    "psxview.not_in_eprocess_pool",
+    "psxview.not_in_ethread_pool",
+    "psxview.not_in_pspcid_list",
+    "psxview.not_in_csrss_handles",
+    "psxview.not_in_session",
+    "psxview.not_in_deskthrd",
+    "psxview.not_in_pslist_false_avg",
+    "psxview.not_in_eprocess_pool_false_avg",
+    "psxview.not_in_ethread_pool_false_avg",
+    "psxview.not_in_pspcid_list_false_avg",
+    "psxview.not_in_csrss_handles_false_avg",
+    "psxview.not_in_session_false_avg",
+    "psxview.not_in_deskthrd_false_avg",
+    "modules.nmodules",
+    "svcscan.nservices",
+    "svcscan.kernel_drivers",
+    "svcscan.fs_drivers",
+    "svcscan.process_services",
+    "svcscan.shared_process_services",
+    "svcscan.interactive_process_services",
+    "svcscan.nactive",
+    "callbacks.ncallbacks",
+    "callbacks.nanonymous",
+    "callbacks.ngeneric"
+  ],
+  "dataset": "CICMalMem-2022 / Obfuscated-MalMem2022.csv",
+  "validation_metrics": {
+    "split": "Validation",
+    "n_samples": 8709,
+    "accuracy": 1.0,
+    "precision_macro": 1.0,
+    "recall_macro": 1.0,
+    "f1_macro": 1.0
+  },
+  "test_metrics": {
+    "split": "Test (CICMEM \u2014 neutral)",
+    "n_samples": 8710,
+    "accuracy": 1.0,
+    "precision_macro": 1.0,
+    "recall_macro": 1.0,
+    "f1_macro": 1.0
+  },
+  "top_20_features": [
+    {
+      "feature": "svcscan.nservices",
+      "importance": 0.15694332
+    },
+    {
+      "feature": "svcscan.kernel_drivers",
+      "importance": 0.13068335
+    },
+    {
+      "feature": "svcscan.shared_process_services",
+      "importance": 0.09963064
+    },
+    {
+      "feature": "dlllist.avg_dlls_per_proc",
+      "importance": 0.0869894
+    },
+    {
+      "feature": "handles.avg_handles_per_proc",
+      "importance": 0.07831095
+    },
+    {
+      "feature": "handles.nsection",
+      "importance": 0.06763036
+    },
+    {
+      "feature": "handles.nmutant",
+      "importance": 0.06519274
+    },
+    {
+      "feature": "handles.nevent",
+      "importance": 0.0577038
+    },
+    {
+      "feature": "pslist.avg_handlers",
+      "importance": 0.05407017
+    },
+    {
+      "feature": "dlllist.ndlls",
+      "importance": 0.03718611
+    },
+    {
+      "feature": "handles.nsemaphore",
+      "importance": 0.02756245
+    },
+    {
+      "feature": "handles.nhandles",
+      "importance": 0.02448633
+    },
+    {
+      "feature": "handles.nthread",
+      "importance": 0.02265708
+    },
+    {
+      "feature": "handles.nkey",
+      "importance": 0.02157279
+    },
+    {
+      "feature": "ldrmodules.not_in_load",
+      "importance": 0.01699225
+    },
+    {
+      "feature": "svcscan.process_services",
+      "importance": 0.00992525
+    },
+    {
+      "feature": "handles.ntimer",
+      "importance": 0.00948074
+    },
+    {
+      "feature": "handles.nfile",
+      "importance": 0.00877413
+    },
+    {
+      "feature": "svcscan.nactive",
+      "importance": 0.00798456
+    },
+    {
+      "feature": "ldrmodules.not_in_mem",
+      "importance": 0.00530282
+    }
+  ]
+}

@@ -84,7 +84,7 @@ export default function AdminLogs() {
       <div className="space-y-6 max-w-5xl">
         <div className="flex items-end justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Audit Logs</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Audit Logs</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">User activity and system events</p>
           </div>
           <button
