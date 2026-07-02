@@ -34,7 +34,7 @@ from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 from .. import db
 from ..models.analysis import (
     AnalysisFeatures, AnalysisResult, AuditLog,
-    LabeledSample, MemoryDump, MlModel,
+    MemoryDump, MlModel,
 )
 from ..utils.roles import ADMIN, ANALYST, require_role
 
@@ -461,32 +461,6 @@ def _analysis_worker(app, dump_id: str, file_path: str):
                     db.session.add(result)
                     dump.status = 'complete'
                     db.session.commit()
-
-                    # ── Pseudo-label: auto-save high-confidence predictions ─────
-                    # If the model is sufficiently certain (≥ PSEUDO_LABEL_THRESHOLD),
-                    # treat the prediction as ground truth and queue it for the next
-                    # adaptive retrain cycle. No human involvement required.
-                    if confidence >= _PSEUDO_LABEL_THRESHOLD:
-                        try:
-                            fv = map_to_feature_vector(extracted).tolist()
-                            pseudo = LabeledSample(
-                                dump_id        = dump_id,
-                                feature_vector = fv,
-                                true_label     = prediction,
-                                source         = 'pseudo_label',
-                                added_by       = None,
-                            )
-                            db.session.add(pseudo)
-                            db.session.commit()
-                            current_app.logger.info(
-                                'Pseudo-labeled dump %s → %s (conf %.2f)',
-                                dump_id, prediction, confidence,
-                            )
-                        except Exception as exc:
-                            db.session.rollback()
-                            current_app.logger.warning(
-                                'Pseudo-labeling failed for dump %s: %s', dump_id, exc,
-                            )
 
             # Delete raw file — features are in the DB now
             try:
@@ -1119,94 +1093,6 @@ def cleanup_uploads():
         'freed_mb':   round(freed / (1024 * 1024), 1),
         'errors':     errors[:10],
     }), 200
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  GET /labeled-samples  — list confirmed labeled samples (admin)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@analysis_bp.get('/labeled-samples')
-@require_role(ADMIN)
-def list_labeled_samples():
-    page     = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
-
-    samples = (
-        LabeledSample.query
-        .order_by(LabeledSample.added_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
-    total = LabeledSample.query.count()
-    pending = LabeledSample.query.filter_by(included_in_model_id=None).count()
-
-    return jsonify({
-        'samples': [s.to_dict() for s in samples],
-        'total':   total,
-        'pending': pending,
-        'page':    page,
-        'per_page': per_page,
-    }), 200
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  POST /labeled-samples  — submit a confirmed ground-truth label (admin)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@analysis_bp.post('/labeled-samples')
-@require_role(ADMIN)
-def add_labeled_sample():
-    """
-    Accept a ground-truth labeled sample for future adaptive retraining.
-
-    Body (JSON):
-      true_label      — required: "Benign" or "Malware"
-      dump_id         — optional: link to an existing memory dump;
-                        if provided and feature_vector is omitted,
-                        the vector is derived from the dump's extracted features
-      feature_vector  — optional 55-element list (overrides dump_id extraction)
-    """
-    data       = request.get_json(silent=True) or {}
-    true_label = data.get('true_label', '').strip()
-    dump_id    = (data.get('dump_id') or '').strip() or None
-    fv         = data.get('feature_vector')
-
-    if true_label not in ('Benign', 'Malware'):
-        return _error('true_label must be "Benign" or "Malware".')
-
-    # Derive feature vector from dump if not supplied directly
-    if fv is None and dump_id:
-        dump = db.session.get(MemoryDump, dump_id)
-        if dump is None:
-            return _error('Dump not found.', 404)
-        if not dump.features or not dump.features.feature_data:
-            return _error('Dump has no extracted features yet; run analysis first.', 422)
-        try:
-            from modules.feature_mapper import map_to_feature_vector
-            fv = map_to_feature_vector(dump.features.feature_data).tolist()
-        except Exception as exc:
-            return _error(f'Could not extract feature vector from dump: {exc}', 422)
-
-    if not isinstance(fv, list) or len(fv) == 0:
-        return _error('feature_vector is required (or provide dump_id with extracted features).')
-
-    sample = LabeledSample(
-        dump_id        = dump_id,
-        feature_vector = fv,
-        true_label     = true_label,
-        source         = 'confirmed_prediction' if dump_id else 'manual',
-        added_by       = get_jwt_identity(),
-    )
-    db.session.add(sample)
-    _audit('label_sample', 'labeled_sample', sample.sample_id,
-           {'true_label': true_label, 'dump_id': dump_id})
-    db.session.commit()
-
-    return jsonify({
-        'message':   'Labeled sample saved.',
-        'sample_id': sample.sample_id,
-    }), 201
 
 
 # ══════════════════════════════════════════════════════════════════════════════

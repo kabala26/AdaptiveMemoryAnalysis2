@@ -130,47 +130,6 @@ class AnalysisResult(db.Model):
         }
 
 
-class LabeledSample(db.Model):
-    """
-    Ground-truth labeled samples used for adaptive retraining.
-
-    Each row holds a 55-element feature vector (same schema as CICMalMem-2022)
-    and a confirmed label.  Rows where included_in_model_id IS NULL are
-    "new since last training" and will be appended to the base dataset on the
-    next retrain run.
-    """
-    __tablename__ = 'labeled_samples'
-
-    sample_id            = db.Column(db.String(36), primary_key=True,
-                                     default=lambda: str(uuid.uuid4()))
-    dump_id              = db.Column(db.String(36),
-                                     db.ForeignKey('memory_dumps.dump_id', ondelete='SET NULL'),
-                                     nullable=True, index=True)
-    feature_vector       = db.Column(db.JSON, nullable=False)
-    true_label           = db.Column(db.String(32), nullable=False)   # 'Benign' | 'Malware'
-    source               = db.Column(db.String(64), nullable=False, default='manual')
-    added_by             = db.Column(db.String(36),
-                                     db.ForeignKey('users.id', ondelete='SET NULL'),
-                                     nullable=True)
-    added_at             = db.Column(db.DateTime(timezone=True),
-                                     default=lambda: datetime.now(timezone.utc),
-                                     nullable=False, index=True)
-    included_in_model_id = db.Column(db.String(36),
-                                     db.ForeignKey('ml_models.model_id', ondelete='SET NULL'),
-                                     nullable=True, index=True)
-
-    def to_dict(self):
-        return {
-            'sample_id':            self.sample_id,
-            'dump_id':              self.dump_id,
-            'true_label':           self.true_label,
-            'source':               self.source,
-            'added_by':             self.added_by,
-            'added_at':             self.added_at.isoformat(),
-            'included_in_model_id': self.included_in_model_id,
-        }
-
-
 class AdditionalDataset(db.Model):
     """
     Admin-uploaded CSV datasets that supplement CICMalMem-2022 during retraining.

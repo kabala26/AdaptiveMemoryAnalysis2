@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   Shield, LayoutDashboard, FileUp, FileText,
-  Users, Cpu, Settings, ShieldAlert, Search, LogOut, Tag, Menu, X,
+  Users, Cpu, Settings, ShieldAlert, Search, LogOut, Menu, X,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth.jsx'
 import ThemeToggle from './ThemeToggle.jsx'
@@ -20,7 +20,6 @@ const ADMIN_LINKS = [
   { label: 'All Analyses',    icon: Search,           href: '/admin/dashboard' },
   { label: 'Users',           icon: Users,            href: '/admin/users' },
   { label: 'Training & Models', icon: Cpu,            href: '/admin/models' },
-  { label: 'Labeled Samples', icon: Tag,              href: '/admin/samples' },
   { label: 'Config',          icon: Settings,         href: '/admin/config' },
   { label: 'Logs',            icon: ShieldAlert,      href: '/admin/logs' },
 ]
