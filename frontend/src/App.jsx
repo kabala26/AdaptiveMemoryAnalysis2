@@ -14,7 +14,6 @@ import AdminUsers      from './pages/AdminUsers.jsx'
 import AdminModels     from './pages/AdminModels.jsx'
 import AdminConfig     from './pages/AdminConfig.jsx'
 import AdminLogs            from './pages/AdminLogs.jsx'
-import AdminLabeledSamples from './pages/AdminLabeledSamples.jsx'
 
 const PAGE_TITLES = {
   '/auth':               'Sign In',
@@ -26,7 +25,6 @@ const PAGE_TITLES = {
   '/admin/models':       'Model Versions',
   '/admin/config':       'Configuration',
   '/admin/logs':         'Audit Logs',
-  '/admin/samples':      'Labeled Samples',
 }
 
 function DynamicTitle() {
@@ -114,7 +112,6 @@ export default function App() {
           <Route path="/admin/models"    element={<AdminRoute><AdminModels /></AdminRoute>} />
           <Route path="/admin/config"    element={<AdminRoute><AdminConfig /></AdminRoute>} />
           <Route path="/admin/logs"      element={<AdminRoute><AdminLogs /></AdminRoute>} />
-          <Route path="/admin/samples"   element={<AdminRoute><AdminLabeledSamples /></AdminRoute>} />
 
           {/* Catch-all */}
           <Route path="*" element={<RootRedirect />} />

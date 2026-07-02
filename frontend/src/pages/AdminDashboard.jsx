@@ -226,7 +226,6 @@ export default function AdminDashboard() {
           {[
             { label: 'Manage Users',     href: '/admin/users'    },
             { label: 'Training & Models', href: '/admin/models'   },
-            { label: 'Labeled Samples',  href: '/admin/samples'  },
             { label: 'Config',           href: '/admin/config'   },
             { label: 'Audit Logs',       href: '/admin/logs'     },
           ].map(l => (
